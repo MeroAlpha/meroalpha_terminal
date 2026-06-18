@@ -1,0 +1,25 @@
+[package]
+name = "meroalpha_terminal"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["desktop"]
+desktop = [
+    "dep:gpui",
+    "dep:gpui_platform",
+    "dep:gpui-component",
+    "dep:gpui-component-assets",
+]
+
+[[bin]]
+name = "meroalpha_terminal"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", optional = true }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit"], optional = true }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "c36b0c6ae6d14c33473f6610a27c3abc584afdf9", optional = true }
+gpui-component-assets = { git = "https://github.com/longbridge/gpui-component", rev = "c36b0c6ae6d14c33473f6610a27c3abc584afdf9", optional = true }
+rusqlite = { version = "0.32", features = ["bundled"] }
