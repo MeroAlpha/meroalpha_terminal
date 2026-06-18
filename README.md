@@ -26,13 +26,44 @@ For that export, `Last Closing Price` is used as the temporary cost basis until 
 ## Current Slice
 
 - GPUI/gpui-component desktop shell.
-- Portfolio page based on `design/screen.png`.
+- Portfolio page based on real imported holdings.
+- Native MeroShare CSV file picker import.
 - Tested CSV parsing and portfolio math.
 - SQLite-backed portfolio repository using `rusqlite`.
+- Local profile name and MeroAlpha Data Platform API key settings stored in SQLite.
+
+## Local Settings
+
+The sidebar footer opens the local profile editor. Users can update:
+
+- Profile name shown in the sidebar.
+- MeroAlpha Data Platform API key for upcoming market-data integration.
+
+The app stores the API key locally in the same SQLite database. It is only used for explicit MeroAlpha Data Platform refresh actions.
+
+## Price Refresh
+
+After importing holdings and saving a MeroAlpha Data Platform API key, use `Refresh Prices` on the portfolio page to update stale CSV prices.
+
+The app calls:
+
+```text
+GET /v1/prices/daily?symbol={SYMBOL}&period=single&adjusted=false&limit=1
+Authorization: Bearer {API_KEY}
+```
+
+If the daily-price endpoint rejects a symbol with `400`, the app treats it as a possible mutual fund and falls back to:
+
+```text
+GET /v1/mutual-funds/nav?symbol={SYMBOL}&period=range&limit=1
+Authorization: Bearer {API_KEY}
+```
+
+Only `ltp` is replaced. Quantity and cost basis stay local, so imported holdings remain the source of truth for position size and average cost.
+
+Some internal or closed mutual funds may not exist on NEPSE or in the MeroAlpha Data Platform. When both upstream price routes are unavailable, the app keeps the imported local LTP; if that LTP is zero or negative, it applies a small `NPR 1.00` local floor so the holding can still be valued.
 
 ## Next Slices
 
-- Native file picker for CSV import.
-- File-backed SQLite database path and migrations.
-- MeroAlpha market-data sync for LTP and corporate actions.
+- Corporate actions sync.
 - Broker analysis and market watch pages.

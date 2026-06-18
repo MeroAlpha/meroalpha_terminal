@@ -1,665 +1,767 @@
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, IntoElement, ParentElement, Render, Styled, Window, div, px, rgb,
+    AppContext, Context, IntoElement, ParentElement, PathPromptOptions, Render, Styled, WeakEntity,
+    Window, div, px,
 };
 use gpui_component::{
-    Icon, IconName, Sizable, h_flex, v_flex,
+    ActiveTheme as _, Disableable, Icon, IconName, Sizable, WindowExt,
     button::{Button, ButtonVariants},
-    input::{Input, InputState},
+    h_flex,
+    input::InputState,
+    notification::Notification,
+    scroll::ScrollableElement,
+    v_flex,
 };
 
-use meroalpha_terminal::portfolio::{
-    HoldingImport, PortfolioPosition, PortfolioSnapshot, portfolio_snapshot,
+use meroalpha_terminal::{
+    db::open_app_db,
+    meroalpha_api::{MeroAlphaClient, PriceFailure, PriceUpdate},
+    portfolio::{
+        AppSettings, PortfolioRepository, PortfolioSnapshot, SqlitePortfolioRepository,
+        local_ltp_for_unavailable_price, parse_holdings_csv, portfolio_snapshot,
+    },
 };
 
-const BACKGROUND: u32 = 0x09090B;
-const SURFACE: u32 = 0x111113;
-const SURFACE_CONTAINER: u32 = 0x1C1C1F;
-const BORDER: u32 = 0x27272A;
-const TEXT: u32 = 0xFAFAFA;
-const TEXT_MUTED: u32 = 0xA1A1AA;
-const EMERALD: u32 = 0x34D399;
-const RED: u32 = 0xFCA5A5;
+use meroalpha_terminal::components::{
+    empty_state::render_empty_state,
+    holdings_table::render_holdings_table,
+    kpi_cards::render_kpis,
+    right_rail::render_right_rail,
+    sidebar::render_sidebar,
+    theme::{StatusKind, status_strip, status_tone},
+};
+
+// ── App state ─────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppNotificationKind {
+    Info,
+    Success,
+    Warning,
+    Error,
+}
+
+impl AppNotificationKind {
+    fn status_kind(self) -> StatusKind {
+        match self {
+            Self::Info => StatusKind::Info,
+            Self::Success => StatusKind::Success,
+            Self::Warning => StatusKind::Warning,
+            Self::Error => StatusKind::Error,
+        }
+    }
+
+    fn icon(self) -> IconName {
+        match self {
+            Self::Info => IconName::Info,
+            Self::Success => IconName::CircleCheck,
+            Self::Warning => IconName::TriangleAlert,
+            Self::Error => IconName::CircleX,
+        }
+    }
+}
 
 pub struct MeroAlphaTerminal {
-    search: gpui::Entity<InputState>,
-    portfolio: PortfolioSnapshot,
+    /// SQLite-backed repository, always valid after new() returns.
+    repository: SqlitePortfolioRepository,
+    settings: AppSettings,
+    profile_name_input: gpui::Entity<InputState>,
+    api_key_input: gpui::Entity<InputState>,
+    settings_open: bool,
+    api_key_visible: bool,
+    /// None until the user imports a CSV for the first time.
+    snapshot: Option<PortfolioSnapshot>,
+    /// Non-empty when the last import attempt produced an error.
+    import_error: Option<String>,
+    settings_error: Option<String>,
+    price_refresh_error: Option<String>,
+    price_refresh_status: Option<String>,
+    refreshing_prices: bool,
 }
 
 impl MeroAlphaTerminal {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search tickers, sectors, or signals (Cmd+K)")
+        // Open (or create) the on-disk SQLite database.
+        let repository = open_app_db().expect("open portfolio database");
+        let settings = repository.load_settings();
+        let profile_name_input =
+            cx.new(|cx| InputState::new(window, cx).default_value(settings.profile_name.clone()));
+        let api_key_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("MeroAlpha API key")
+                .masked(true)
+                .default_value(settings.meroalpha_api_key.clone().unwrap_or_default())
         });
 
+        // Load whatever was persisted from a previous session.
+        let snapshot = {
+            let s = repository.load_snapshot();
+            if s.positions.is_empty() {
+                None
+            } else {
+                Some(s)
+            }
+        };
+
         Self {
-            search,
-            portfolio: portfolio_snapshot(&seed_holdings()),
+            repository,
+            settings,
+            profile_name_input,
+            api_key_input,
+            settings_open: false,
+            api_key_visible: false,
+            snapshot,
+            import_error: None,
+            settings_error: None,
+            price_refresh_error: None,
+            price_refresh_status: None,
+            refreshing_prices: false,
         }
     }
 
-    fn render_sidebar(&self) -> impl IntoElement {
-        v_flex()
-            .w(px(320.))
-            .h_full()
-            .flex_shrink_0()
-            .justify_between()
-            .bg(rgb(SURFACE))
-            .border_r_1()
-            .border_color(rgb(BORDER))
-            .p_6()
-            .child(
-                v_flex()
-                    .gap_10()
-                    .child(
-                        h_flex()
-                            .gap_3()
-                            .child(Icon::new(IconName::SquareTerminal).text_color(rgb(EMERALD)))
-                            .child(
-                                v_flex()
-                                    .child(
-                                        div()
-                                            .text_color(rgb(TEXT))
-                                            .text_size(px(20.))
-                                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                                            .child("NEPSE Terminal"),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_color(rgb(TEXT_MUTED))
-                                            .text_size(px(11.))
-                                            .child("MARKET LIVE"),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .child(nav_item(IconName::LayoutDashboard, "Overview", false))
-                            .child(nav_item(IconName::ChartPie, "Market", false))
-                            .child(nav_item(IconName::HardDrive, "Portfolio", true))
-                            .child(nav_item(IconName::Network, "Broker Analysis", false))
-                            .child(nav_item(IconName::Cpu, "Strategy Lab", false)),
-                    ),
-            )
-            .child(
+    fn push_notification(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        kind: AppNotificationKind,
+        title: &'static str,
+        message: impl Into<gpui::SharedString>,
+    ) {
+        let message = message.into();
+        let title: gpui::SharedString = title.into();
+        let notification = Notification::new()
+            .content(move |_, _, cx| {
+                let theme = cx.theme().clone();
+                let status_kind = kind.status_kind();
+                let tone = status_tone(&theme, status_kind);
+
                 h_flex()
                     .gap_3()
-                    .border_t_1()
-                    .border_color(rgb(BORDER))
-                    .pt_4()
+                    .items_start()
                     .child(
                         div()
-                            .size(px(32.))
-                            .rounded_full()
-                            .bg(rgb(SURFACE_CONTAINER))
+                            .size(px(24.))
+                            .flex_shrink_0()
+                            .rounded(px(6.))
                             .border_1()
-                            .border_color(rgb(BORDER)),
+                            .border_color(tone.border)
+                            .bg(tone.surface)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(Icon::new(kind.icon()).xsmall().text_color(tone.accent)),
                     )
                     .child(
                         v_flex()
+                            .min_w(px(0.))
+                            .gap_0p5()
                             .child(
                                 div()
-                                    .text_color(rgb(TEXT))
                                     .text_size(px(13.))
-                                    .child("USER_774"),
+                                    .line_height(px(18.))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(theme.foreground)
+                                    .child(title.clone()),
                             )
                             .child(
                                 div()
-                                    .text_color(rgb(EMERALD))
                                     .text_size(px(12.))
-                                    .child("Pro Active"),
+                                    .line_height(px(17.))
+                                    .text_color(theme.muted_foreground)
+                                    .child(message.clone()),
                             ),
-                    ),
-            )
-    }
-
-    fn render_topbar(&self) -> impl IntoElement {
-        h_flex()
-            .h(px(64.))
-            .justify_between()
-            .border_b_1()
-            .border_color(rgb(BORDER))
-            .bg(rgb(SURFACE))
-            .px_6()
-            .child(
-                div()
-                    .w(px(480.))
-                    .child(Input::new(&self.search).prefix(Icon::new(IconName::Search).small())),
-            )
-            .child(
-                h_flex()
-                    .gap_4()
-                    .child(Icon::new(IconName::Network).text_color(rgb(TEXT_MUTED)))
-                    .child(Icon::new(IconName::Bell).text_color(rgb(TEXT_MUTED)))
-                    .child(Icon::new(IconName::Settings).text_color(rgb(TEXT_MUTED))),
-            )
-    }
-
-    fn render_portfolio_page(&self) -> impl IntoElement {
-        v_flex()
-            .size_full()
-            .bg(rgb(BACKGROUND))
-            .child(self.render_topbar())
-            .child(
-                h_flex()
-                    .items_start()
-                    .gap_5()
-                    .p_6()
-                    .overflow_hidden()
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .gap_5()
-                            .child(self.render_page_header())
-                            .child(self.render_kpis())
-                            .child(self.render_performance_panel())
-                            .child(self.render_holdings_table()),
                     )
-                    .child(self.render_right_rail()),
-            )
+                    .into_any_element()
+            })
+            .w(px(360.));
+
+        window.push_notification(notification, cx);
     }
 
-    fn render_page_header(&self) -> impl IntoElement {
+    // ── CSV import ────────────────────────────────────────────────────────────
+
+    /// Opens the native file picker; on selection parses and persists the CSV.
+    fn open_csv_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Select MeroShare CSV export".into()),
+        });
+
+        cx.spawn_in(
+            window,
+            async move |this: WeakEntity<MeroAlphaTerminal>, cx| {
+                // Await the platform file-picker result.
+                // Shape: Result<Result<Option<Vec<PathBuf>>, Error>, Canceled>
+                let paths = match receiver.await {
+                    Ok(Ok(Some(paths))) => paths,
+                    // Cancelled or any error → do nothing.
+                    _ => return,
+                };
+
+                let path = match paths.into_iter().next() {
+                    Some(p) => p,
+                    None => return,
+                };
+
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.push_notification(
+                        window,
+                        cx,
+                        AppNotificationKind::Info,
+                        "Importing holdings",
+                        "Reading the selected CSV file.",
+                    );
+                });
+
+                // Read the CSV file (potentially large) off the main thread.
+                let read_result: std::io::Result<String> = cx
+                    .background_executor()
+                    .spawn(async move { std::fs::read_to_string(path) })
+                    .await;
+
+                let content = match read_result {
+                    Ok(c) => c,
+                    Err(e) => {
+                        let _ = this.update_in(cx, |this, window, cx| {
+                            let message = format!("Cannot read file: {e}");
+                            this.import_error = Some(message.clone());
+                            this.push_notification(
+                                window,
+                                cx,
+                                AppNotificationKind::Error,
+                                "Import failed",
+                                message,
+                            );
+                            cx.notify();
+                        });
+                        return;
+                    }
+                };
+
+                // Parse and persist on the main thread.
+                let _ = this.update_in(cx, |this, window, cx| {
+                    match parse_holdings_csv(&content) {
+                        Ok(holdings) => {
+                            let position_count = holdings.len();
+                            this.repository.replace_holdings(holdings.clone());
+                            this.snapshot = Some(portfolio_snapshot(&holdings));
+                            this.import_error = None;
+                            this.push_notification(
+                                window,
+                                cx,
+                                AppNotificationKind::Success,
+                                "Holdings imported",
+                                format!("Imported {position_count} holdings from CSV."),
+                            );
+                        }
+                        Err(e) => {
+                            let message = format!("CSV parse error: {:?}", e);
+                            this.import_error = Some(message.clone());
+                            this.push_notification(
+                                window,
+                                cx,
+                                AppNotificationKind::Error,
+                                "Import failed",
+                                message,
+                            );
+                        }
+                    }
+                    cx.notify();
+                });
+            },
+        )
+        .detach();
+    }
+
+    // ── MeroAlpha price refresh ───────────────────────────────────────────────
+
+    fn refresh_prices(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(api_key) = self.settings.meroalpha_api_key.clone() else {
+            let message = "Set your MeroAlpha API key first.";
+            self.price_refresh_error = Some(message.to_string());
+            self.push_notification(
+                window,
+                cx,
+                AppNotificationKind::Warning,
+                "Price refresh",
+                message,
+            );
+            cx.notify();
+            return;
+        };
+
+        let symbols = self
+            .snapshot
+            .as_ref()
+            .map(|snapshot| {
+                snapshot
+                    .positions
+                    .iter()
+                    .map(|position| position.symbol.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        if symbols.is_empty() {
+            let message = "Import holdings before refreshing prices.";
+            self.price_refresh_error = Some(message.to_string());
+            self.push_notification(
+                window,
+                cx,
+                AppNotificationKind::Warning,
+                "Price refresh",
+                message,
+            );
+            cx.notify();
+            return;
+        }
+
+        self.refreshing_prices = true;
+        self.price_refresh_error = None;
+        self.price_refresh_status = Some(format!("Refreshing {} prices...", symbols.len()));
+        self.push_notification(
+            window,
+            cx,
+            AppNotificationKind::Info,
+            "Fetching prices",
+            format!("Fetching latest prices for {} holdings.", symbols.len()),
+        );
+        cx.notify();
+
+        cx.spawn_in(
+            window,
+            async move |this: WeakEntity<MeroAlphaTerminal>, cx| {
+                let fetch_result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let client = MeroAlphaClient::new(api_key);
+                        let mut updates = Vec::new();
+                        let mut failures = Vec::new();
+
+                        for result in client.latest_prices(&symbols) {
+                            match result {
+                                Ok(update) => updates.push(update),
+                                Err(error) => failures.push(error),
+                            }
+                        }
+
+                        (updates, failures)
+                    })
+                    .await;
+
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.apply_price_refresh(fetch_result.0, fetch_result.1);
+                    let message = this
+                        .price_refresh_error
+                        .as_ref()
+                        .or(this.price_refresh_status.as_ref())
+                        .cloned();
+                    if let Some(message) = message {
+                        let kind = this
+                            .price_refresh_error
+                            .as_ref()
+                            .map(|_| AppNotificationKind::Error)
+                            .unwrap_or_else(|| notification_kind_for_status(&message));
+                        this.push_notification(window, cx, kind, "Price refresh", message);
+                    }
+                    cx.notify();
+                });
+            },
+        )
+        .detach();
+    }
+
+    fn apply_price_refresh(&mut self, updates: Vec<PriceUpdate>, failures: Vec<PriceFailure>) {
+        let current_snapshot = self.snapshot.clone();
+        let mut unavailable_count = 0;
+        let mut local_floor_count = 0;
+        let mut hard_failures = Vec::new();
+        let mut storage_errors = Vec::new();
+
+        for update in &updates {
+            if let Err(error) = self.repository.update_ltp(&update.symbol, update.ltp) {
+                storage_errors.push(format!("Could not save {}: {:?}", update.symbol, error));
+            }
+        }
+
+        for failure in failures {
+            if failure.error.is_unavailable_price() {
+                unavailable_count += 1;
+                let current_ltp = current_snapshot
+                    .as_ref()
+                    .and_then(|snapshot| {
+                        snapshot
+                            .positions
+                            .iter()
+                            .find(|position| position.symbol == failure.symbol)
+                    })
+                    .map(|position| position.ltp)
+                    .unwrap_or(0.0);
+                let local_ltp = local_ltp_for_unavailable_price(current_ltp);
+
+                if local_ltp != current_ltp {
+                    local_floor_count += 1;
+                    if let Err(error) = self.repository.update_ltp(&failure.symbol, local_ltp) {
+                        storage_errors
+                            .push(format!("Could not save {}: {:?}", failure.symbol, error));
+                    }
+                }
+            } else {
+                hard_failures.push(failure);
+            }
+        }
+
+        self.snapshot = Some(self.repository.load_snapshot());
+        self.refreshing_prices = false;
+
+        if !storage_errors.is_empty() {
+            self.price_refresh_status = None;
+            self.price_refresh_error = Some(storage_errors.join("; "));
+        } else if updates.is_empty() && unavailable_count == 0 {
+            self.price_refresh_status = None;
+            self.price_refresh_error = Some(format!(
+                "No prices updated. {}",
+                hard_failures
+                    .first()
+                    .map(|failure| format!("{}: {:?}", failure.symbol, failure.error))
+                    .unwrap_or_else(|| "No response data.".to_string())
+            ));
+        } else if hard_failures.is_empty() {
+            self.price_refresh_error = None;
+            self.price_refresh_status = Some(price_refresh_status(
+                updates.len(),
+                unavailable_count,
+                local_floor_count,
+            ));
+        } else {
+            self.price_refresh_status = Some(format!(
+                "Updated {} prices; kept local valuation for {} unavailable symbols; {} symbols failed.",
+                updates.len(),
+                unavailable_count,
+                hard_failures.len()
+            ));
+        }
+    }
+
+    // ── Local settings ────────────────────────────────────────────────────────
+
+    fn open_settings_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.profile_name_input.update(cx, |input, cx| {
+            input.set_value(self.settings.profile_name.clone(), window, cx);
+        });
+        self.api_key_input.update(cx, |input, cx| {
+            input.set_value(
+                self.settings.meroalpha_api_key.clone().unwrap_or_default(),
+                window,
+                cx,
+            );
+            input.set_masked(true, window, cx);
+        });
+        self.settings_open = true;
+        self.api_key_visible = false;
+        self.settings_error = None;
+        cx.notify();
+    }
+
+    fn cancel_settings_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.profile_name_input.update(cx, |input, cx| {
+            input.set_value(self.settings.profile_name.clone(), window, cx);
+        });
+        self.api_key_input.update(cx, |input, cx| {
+            input.set_value(
+                self.settings.meroalpha_api_key.clone().unwrap_or_default(),
+                window,
+                cx,
+            );
+            input.set_masked(true, window, cx);
+        });
+        self.settings_open = false;
+        self.api_key_visible = false;
+        self.settings_error = None;
+        cx.notify();
+    }
+
+    fn toggle_api_key_visibility(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.api_key_visible = !self.api_key_visible;
+        self.api_key_input.update(cx, |input, cx| {
+            input.set_masked(!self.api_key_visible, window, cx);
+        });
+        cx.notify();
+    }
+
+    fn save_settings_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let profile_name = self.profile_name_input.read(cx).value().to_string();
+        let api_key = self.api_key_input.read(cx).value().to_string();
+        let next = AppSettings {
+            profile_name,
+            meroalpha_api_key: Some(api_key),
+        };
+
+        match self.repository.save_settings(&next) {
+            Ok(()) => {
+                self.settings = self.repository.load_settings();
+                self.settings_open = false;
+                self.settings_error = None;
+                self.push_notification(
+                    window,
+                    cx,
+                    AppNotificationKind::Success,
+                    "Settings saved",
+                    "Profile settings were saved locally.",
+                );
+            }
+            Err(error) => {
+                let message = format!("{error:?}");
+                self.settings_error = Some(message.clone());
+                self.push_notification(
+                    window,
+                    cx,
+                    AppNotificationKind::Error,
+                    "Settings save failed",
+                    message,
+                );
+            }
+        }
+        cx.notify();
+    }
+
+    // ── Render helpers ────────────────────────────────────────────────────────
+
+    fn render_page_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .justify_between()
             .items_end()
+            .gap_4()
+            .flex_wrap()
             .child(
                 v_flex()
                     .gap_1()
                     .child(
                         div()
-                            .text_color(rgb(TEXT))
-                            .text_size(px(30.))
+                            .text_color(cx.theme().foreground)
+                            .text_size(px(28.))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child("Portfolio Analysis"),
+                            .child("Portfolio"),
                     )
                     .child(
-                        h_flex()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_color(rgb(TEXT_MUTED))
-                                    .text_size(px(14.))
-                                    .child("Local valuation and risk assessment. Last synced:"),
-                            )
-                            .child(
-                                div()
-                                    .text_color(rgb(TEXT))
-                                    .text_size(px(14.))
-                                    .child("14:22:05 NPT"),
-                            ),
+                        div()
+                            .text_color(cx.theme().muted_foreground)
+                            .text_size(px(14.))
+                            .child("MeroShare holdings — local valuation"),
                     ),
             )
             .child(
                 h_flex()
                     .gap_3()
-                    .child(Button::new("export").icon(IconName::Copy).label("Export Data"))
                     .child(
-                        Button::new("import")
+                        Button::new("refresh-prices")
+                            .small()
+                            .w(px(36.))
+                            .h(px(36.))
+                            .icon(IconName::Redo)
+                            .tooltip(if self.refreshing_prices {
+                                "Refreshing prices"
+                            } else {
+                                "Refresh Prices"
+                            })
+                            .disabled(self.refreshing_prices)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.refresh_prices(window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("import-csv-header")
                             .primary()
+                            .small()
+                            .w(px(36.))
+                            .h(px(36.))
                             .icon(IconName::Plus)
-                            .label("Import CSV"),
+                            .tooltip("Import CSV")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_csv_picker(window, cx);
+                            })),
                     ),
             )
     }
 
-    fn render_kpis(&self) -> impl IntoElement {
-        let top = self
-            .portfolio
-            .top_holding_symbol
-            .clone()
-            .unwrap_or_else(|| "NONE".to_string());
-
-        h_flex()
-            .gap_4()
-            .child(kpi_card(
-                "Total Value",
-                format_money(self.portfolio.total_value),
-                format!("{} Today", signed_money(12_450.0)),
-                IconName::Building2,
-                true,
-            ))
-            .child(kpi_card(
-                "Unrealized P/L",
-                signed_money(self.portfolio.unrealized_pl),
-                format!("{:+.2}% All Time", self.portfolio.unrealized_pl_pct),
-                IconName::ArrowUp,
-                self.portfolio.unrealized_pl >= 0.0,
-            ))
-            .child(kpi_card(
-                "Top Holding",
-                top,
-                format!(
-                    "Value: {}",
-                    self.portfolio
-                        .positions
-                        .first()
-                        .map(|position| format_money(position.market_value))
-                        .unwrap_or_else(|| "NPR 0.00".to_string())
-                ),
-                IconName::Star,
-                true,
-            ))
+    fn render_import_error(&self) -> Option<impl IntoElement> {
+        self.import_error
+            .as_ref()
+            .map(|msg| status_strip(StatusKind::Error, "Import failed", msg.clone()))
     }
 
-    fn render_performance_panel(&self) -> impl IntoElement {
-        panel()
-            .h(px(360.))
-            .child(
-                h_flex()
-                    .justify_between()
-                    .mb_6()
-                    .child(section_title("Performance vs Benchmark"))
-                    .child(
-                        h_flex()
-                            .gap_1()
-                            .rounded(px(6.))
-                            .bg(rgb(SURFACE_CONTAINER))
-                            .p_1()
-                            .child(range_chip("1W", false))
-                            .child(range_chip("1M", false))
-                            .child(range_chip("3M", false))
-                            .child(range_chip("YTD", true))
-                            .child(range_chip("1Y", false))
-                            .child(range_chip("ALL", false)),
-                    ),
-            )
-            .child(
-                div()
-                    .relative()
-                    .h(px(260.))
-                    .border_l_1()
-                    .border_b_1()
-                    .border_color(rgb(BORDER))
-                    .ml_8()
-                    .child(chart_grid())
-                    .child(chart_line()),
-            )
+    fn render_settings_error(&self) -> Option<impl IntoElement> {
+        self.settings_error
+            .as_ref()
+            .map(|msg| status_strip(StatusKind::Error, "Settings save failed", msg.clone()))
     }
 
-    fn render_holdings_table(&self) -> impl IntoElement {
-        panel()
-            .child(
-                h_flex()
-                    .justify_between()
-                    .mb_5()
-                    .child(section_title("Holdings Ledger"))
-                    .child(
-                        div()
-                            .rounded(px(6.))
-                            .border_1()
-                            .border_color(rgb(BORDER))
-                            .bg(rgb(SURFACE_CONTAINER))
-                            .px_3()
-                            .py_1()
-                            .text_color(rgb(TEXT_MUTED))
-                            .text_size(px(12.))
-                            .child(format!("{} Positions", self.portfolio.positions.len())),
-                    ),
-            )
-            .child(table_header())
-            .children(
-                self.portfolio
-                    .positions
-                    .iter()
-                    .map(render_position_row)
-                    .collect::<Vec<_>>(),
-            )
+    fn render_price_refresh_message(&self) -> Option<impl IntoElement> {
+        self.price_refresh_error
+            .as_ref()
+            .map(|msg| status_strip(StatusKind::Error, "Price refresh failed", msg.clone()))
+            .or_else(|| {
+                self.price_refresh_status.as_ref().map(|msg| {
+                    status_strip(price_refresh_status_kind(msg), "Price refresh", msg.clone())
+                })
+            })
     }
 
-    fn render_right_rail(&self) -> impl IntoElement {
+    fn render_page_alerts(&self) -> impl IntoElement {
         v_flex()
-            .w(px(392.))
-            .flex_shrink_0()
-            .gap_5()
-            .child(
-                panel()
-                    .child(
-                        h_flex()
-                            .justify_between()
-                            .mb_6()
-                            .child(section_title("AI Intelligence"))
-                            .child(
-                                div()
-                                    .text_color(rgb(TEXT_MUTED))
-                                    .text_size(px(12.))
-                                    .child("BETA v0.9"),
-                            ),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_5()
-                            .mb_5()
-                            .p_4()
-                            .rounded(px(6.))
-                            .border_1()
-                            .border_color(rgb(BORDER))
-                            .bg(rgb(BACKGROUND))
-                            .child(risk_ring("24"))
-                            .child(
-                                v_flex()
-                                    .gap_2()
-                                    .child(div().text_color(rgb(TEXT)).text_size(px(18.)).child("Low Risk Profile"))
-                                    .child(
-                                        div()
-                                            .text_color(rgb(TEXT_MUTED))
-                                            .text_size(px(14.))
-                                            .child("Beta: 0.85. Less volatile than market."),
-                                    ),
-                            ),
-                    )
-                    .child(insight("High Sector Concentration", "Commercial Banks constitute 48% of total equity. Consider diversifying into Hydro or Manufacturing.", false))
-                    .child(insight("Optimal Holding Period", "NABIL has reached historical resistance levels. Statistical probability of near-term pullback is 68%.", true)),
-            )
-            .child(
-                panel()
-                    .child(section_title("Corporate Actions"))
-                    .child(action_item("OCT 12", "NABIL", "Cash Div", "11.00%"))
-                    .child(action_item("NOV 05", "GBIME", "Bonus", "8.50%")),
-            )
-            .child(
-                panel()
-                    .child(
-                        div()
-                            .text_color(rgb(TEXT_MUTED))
-                            .text_size(px(12.))
-                            .mb_4()
-                            .child("API_RESPONSE: PORTFOLIO_SYNC"),
-                    )
-                    .child(
-                        div()
-                            .text_color(rgb(TEXT_MUTED))
-                            .text_size(px(12.))
-                            .child("{ \"status\": \"local\", \"positions\": 4 }"),
-                    ),
-            )
+            .gap_2()
+            .when_some(self.render_import_error(), |el, err| el.child(err))
+            .when_some(self.render_settings_error(), |el, err| el.child(err))
+            .when_some(self.render_price_refresh_message(), |el, msg| el.child(msg))
     }
-}
 
-impl Render for MeroAlphaTerminal {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        h_flex()
-            .size_full()
-            .bg(rgb(BACKGROUND))
-            .child(self.render_sidebar())
-            .child(self.render_portfolio_page())
-    }
-}
+    fn render_portfolio_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let snapshot = self.snapshot.as_ref().unwrap();
+        let theme = cx.theme().clone();
 
-fn seed_holdings() -> Vec<HoldingImport> {
-    vec![
-        HoldingImport {
-            symbol: "NABIL".to_string(),
-            quantity: 2450.0,
-            avg_cost: 450.20,
-            ltp: 562.10,
-        },
-        HoldingImport {
-            symbol: "GBIME".to_string(),
-            quantity: 3100.0,
-            avg_cost: 190.50,
-            ltp: 215.00,
-        },
-        HoldingImport {
-            symbol: "SHIVM".to_string(),
-            quantity: 1200.0,
-            avg_cost: 540.00,
-            ltp: 490.50,
-        },
-        HoldingImport {
-            symbol: "NTC".to_string(),
-            quantity: 850.0,
-            avg_cost: 880.00,
-            ltp: 910.00,
-        },
-    ]
-}
-
-fn nav_item(icon: IconName, label: &'static str, active: bool) -> impl IntoElement {
-    h_flex()
-        .gap_3()
-        .rounded(px(6.))
-        .px_4()
-        .py_3()
-        .bg(if active { rgb(SURFACE_CONTAINER) } else { rgb(SURFACE) })
-        .border_r_2()
-        .border_color(if active { rgb(EMERALD) } else { rgb(SURFACE) })
-        .child(Icon::new(icon).text_color(if active { rgb(TEXT) } else { rgb(TEXT_MUTED) }))
-        .child(
-            div()
-                .text_color(if active { rgb(TEXT) } else { rgb(TEXT_MUTED) })
-                .text_size(px(15.))
-                .child(label),
-        )
-}
-
-fn panel() -> gpui::Div {
-    div()
-        .rounded(px(8.))
-        .border_1()
-        .border_color(rgb(BORDER))
-        .bg(rgb(SURFACE))
-        .p_5()
-}
-
-fn section_title(title: &'static str) -> impl IntoElement {
-    div()
-        .text_color(rgb(TEXT))
-        .text_size(px(20.))
-        .font_weight(gpui::FontWeight::SEMIBOLD)
-        .child(title)
-}
-
-fn kpi_card(
-    label: &'static str,
-    value: impl Into<gpui::SharedString>,
-    footer: impl Into<gpui::SharedString>,
-    icon: IconName,
-    positive: bool,
-) -> impl IntoElement {
-    panel()
-        .h(px(128.))
-        .flex_1()
-        .justify_between()
-        .child(
+        v_flex().size_full().bg(theme.background).child(
             h_flex()
-                .justify_between()
-                .child(div().text_color(rgb(TEXT_MUTED)).text_size(px(14.)).child(label))
-                .child(Icon::new(icon).small().text_color(rgb(TEXT_MUTED))),
-        )
-        .child(
-            v_flex()
-                .gap_1()
-                .child(
-                    div()
-                        .text_color(if positive { rgb(EMERALD) } else { rgb(RED) })
-                        .text_size(px(24.))
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                        .child(value.into()),
-                )
-                .child(
-                    div()
-                        .text_color(if positive { rgb(EMERALD) } else { rgb(RED) })
-                        .text_size(px(13.))
-                        .child(footer.into()),
-                ),
-        )
-}
-
-fn range_chip(label: &'static str, active: bool) -> impl IntoElement {
-    div()
-        .rounded(px(4.))
-        .px_3()
-        .py_1()
-        .bg(if active { rgb(SURFACE) } else { rgb(SURFACE_CONTAINER) })
-        .border_1()
-        .border_color(if active { rgb(BORDER) } else { rgb(SURFACE_CONTAINER) })
-        .text_color(if active { rgb(TEXT) } else { rgb(TEXT_MUTED) })
-        .text_size(px(12.))
-        .child(label)
-}
-
-fn chart_grid() -> impl IntoElement {
-    v_flex()
-        .absolute()
-        .inset_0()
-        .justify_between()
-        .children((0..5).map(|_| {
-            div()
-                .h(px(1.))
-                .w_full()
-                .bg(rgb(BORDER))
-                .opacity(0.55)
-        }))
-}
-
-fn chart_line() -> impl IntoElement {
-    h_flex()
-        .absolute()
-        .left(px(0.))
-        .right(px(0.))
-        .bottom(px(52.))
-        .h(px(110.))
-        .items_end()
-        .justify_between()
-        .px_8()
-        .children([45., 70., 78., 118., 150., 178.].into_iter().map(|height| {
-            div()
-                .w(px(9.))
-                .h(px(height))
-                .rounded_full()
-                .bg(rgb(EMERALD))
-        }))
-}
-
-fn table_header() -> impl IntoElement {
-    h_flex()
-        .bg(rgb(SURFACE_CONTAINER))
-        .border_b_1()
-        .border_color(rgb(BORDER))
-        .px_4()
-        .py_3()
-        .child(table_cell("TICKER", 1.2, TEXT_MUTED))
-        .child(table_cell("QTY", 1.0, TEXT_MUTED))
-        .child(table_cell("AVG COST", 1.0, TEXT_MUTED))
-        .child(table_cell("LTP", 1.0, TEXT_MUTED))
-        .child(table_cell("CUR VAL", 1.2, TEXT_MUTED))
-        .child(table_cell("P/L %", 1.0, TEXT_MUTED))
-}
-
-fn render_position_row(position: &PortfolioPosition) -> impl IntoElement {
-    h_flex()
-        .border_b_1()
-        .border_color(rgb(BORDER))
-        .px_4()
-        .py_4()
-        .child(table_cell(position.symbol.clone(), 1.2, TEXT))
-        .child(table_cell(format!("{:.0}", position.quantity), 1.0, TEXT))
-        .child(table_cell(format!("{:.2}", position.avg_cost), 1.0, TEXT_MUTED))
-        .child(table_cell(format!("{:.2}", position.ltp), 1.0, TEXT))
-        .child(table_cell(format_number(position.market_value), 1.2, TEXT))
-        .child(table_cell(
-            format!("{:+.2}%", position.unrealized_pl_pct),
-            1.0,
-            if position.unrealized_pl >= 0.0 { EMERALD } else { RED },
-        ))
-}
-
-fn table_cell(content: impl Into<gpui::SharedString>, grow: f32, color: u32) -> impl IntoElement {
-    div()
-        .flex_grow(grow)
-        .flex_basis(px(100. * grow))
-        .text_color(rgb(color))
-        .text_size(px(13.))
-        .child(content.into())
-}
-
-fn risk_ring(score: &'static str) -> impl IntoElement {
-    div()
-        .size(px(72.))
-        .rounded_full()
-        .border_4()
-        .border_color(rgb(EMERALD))
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(div().text_color(rgb(TEXT)).text_size(px(22.)).child(score))
-}
-
-fn insight(title: &'static str, body: &'static str, positive: bool) -> impl IntoElement {
-    h_flex()
-        .items_start()
-        .gap_3()
-        .mb_4()
-        .child(
-            div()
-                .size(px(10.))
-                .mt_1()
-                .rounded_full()
-                .bg(if positive { rgb(EMERALD) } else { rgb(RED) }),
-        )
-        .child(
-            v_flex()
-                .gap_1()
-                .child(div().text_color(rgb(TEXT)).text_size(px(16.)).child(title))
-                .child(div().text_color(rgb(TEXT_MUTED)).text_size(px(13.)).child(body)),
-        )
-}
-
-fn action_item(date: &'static str, symbol: &'static str, label: &'static str, value: &'static str) -> impl IntoElement {
-    h_flex()
-        .justify_between()
-        .border_t_1()
-        .border_color(rgb(BORDER))
-        .py_4()
-        .child(
-            h_flex()
-                .gap_3()
-                .child(
-                    div()
-                        .rounded(px(6.))
-                        .bg(rgb(SURFACE_CONTAINER))
-                        .px_3()
-                        .py_2()
-                        .text_color(rgb(TEXT))
-                        .text_size(px(13.))
-                        .child(date),
-                )
+                .size_full()
+                .min_w(px(960.))
+                .items_start()
+                .gap_4()
+                .p_5()
+                .overflow_scrollbar()
                 .child(
                     v_flex()
-                        .child(div().text_color(rgb(TEXT)).text_size(px(16.)).child(symbol))
-                        .child(div().text_color(rgb(TEXT_MUTED)).text_size(px(13.)).child(label)),
-                ),
+                        .flex_1()
+                        .min_w(px(620.))
+                        .h_full()
+                        .gap_4()
+                        .overflow_y_scrollbar()
+                        .child(self.render_page_header(cx))
+                        .child(self.render_page_alerts())
+                        .child(render_kpis(snapshot, &theme))
+                        .child(render_holdings_table(snapshot, &theme)),
+                )
+                .child(render_right_rail(snapshot, &theme)),
         )
-        .child(div().text_color(rgb(EMERALD)).text_size(px(16.)).child(value))
-}
+    }
 
-fn format_money(value: f64) -> String {
-    format!("NPR {}", format_number(value))
-}
-
-fn signed_money(value: f64) -> String {
-    if value >= 0.0 {
-        format!("+{}", format_money(value))
-    } else {
-        format!("-{}", format_money(value.abs()))
+    fn render_empty_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
+        v_flex()
+            .size_full()
+            .bg(theme.background)
+            .child(div().px_6().pt_4().child(self.render_page_alerts()))
+            .child(render_empty_state(
+                &theme,
+                cx.listener(|this, _, window, cx| {
+                    this.open_csv_picker(window, cx);
+                }),
+            ))
     }
 }
 
-fn format_number(value: f64) -> String {
-    let rounded = format!("{:.2}", value.abs());
-    let (whole, decimal) = rounded.split_once('.').unwrap_or((rounded.as_str(), "00"));
-    let mut out = String::new();
-    for (ix, ch) in whole.chars().rev().enumerate() {
-        if ix > 0 && ix % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    let whole = out.chars().rev().collect::<String>();
-    if value < 0.0 {
-        format!("-{}.{}", whole, decimal)
+fn price_refresh_status(updated: usize, unavailable: usize, local_floor_count: usize) -> String {
+    let mut parts = Vec::new();
+
+    if updated > 0 {
+        parts.push(format!("Updated {updated} prices from MeroAlpha."));
     } else {
-        format!("{}.{}", whole, decimal)
+        parts.push("No upstream prices updated.".to_string());
+    }
+
+    if unavailable > 0 {
+        parts.push(format!(
+            "Kept local valuation for {unavailable} unavailable symbols."
+        ));
+    }
+
+    if local_floor_count > 0 {
+        parts.push(format!(
+            "Applied NPR 1.00 local floor to {local_floor_count} symbols."
+        ));
+    }
+
+    parts.join(" ")
+}
+
+fn price_refresh_status_kind(message: &str) -> StatusKind {
+    if message.contains("No upstream") || message.contains("Kept local valuation") {
+        StatusKind::Warning
+    } else {
+        StatusKind::Success
+    }
+}
+
+fn notification_kind_for_status(message: &str) -> AppNotificationKind {
+    if price_refresh_status_kind(message) == StatusKind::Warning {
+        AppNotificationKind::Warning
+    } else {
+        AppNotificationKind::Success
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_price_refresh_status_to_notification_kind() {
+        assert_eq!(
+            notification_kind_for_status("Updated 4 prices from MeroAlpha."),
+            AppNotificationKind::Success
+        );
+        assert_eq!(
+            notification_kind_for_status(
+                "No upstream prices updated. Kept local valuation for 2 unavailable symbols."
+            ),
+            AppNotificationKind::Warning
+        );
+    }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+
+impl Render for MeroAlphaTerminal {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
+
+        h_flex()
+            .size_full()
+            .bg(theme.background)
+            .child(render_sidebar(
+                &theme,
+                "portfolio",
+                &self.settings.profile_name,
+                self.settings.meroalpha_api_key.is_some(),
+                self.settings_open,
+                &self.profile_name_input,
+                &self.api_key_input,
+                cx.listener(|this, _, window, cx| {
+                    this.open_settings_editor(window, cx);
+                }),
+                self.api_key_visible,
+                cx.listener(|this, _, window, cx| {
+                    this.toggle_api_key_visibility(window, cx);
+                }),
+                cx.listener(|this, _, window, cx| {
+                    this.save_settings_editor(window, cx);
+                }),
+                cx.listener(|this, _, window, cx| {
+                    this.cancel_settings_editor(window, cx);
+                }),
+            ))
+            .child(if self.snapshot.is_some() {
+                div()
+                    .flex_1()
+                    .h_full()
+                    .overflow_scrollbar()
+                    .child(self.render_portfolio_page(cx))
+            } else {
+                div()
+                    .flex_1()
+                    .h_full()
+                    .overflow_scrollbar()
+                    .child(self.render_empty_page(cx))
+            })
     }
 }

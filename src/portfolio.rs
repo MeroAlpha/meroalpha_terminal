@@ -32,11 +32,34 @@ pub struct PortfolioSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppSettings {
+    pub profile_name: String,
+    pub meroalpha_api_key: Option<String>,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            profile_name: "NEPSE Investor".to_string(),
+            meroalpha_api_key: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortfolioImportError {
     EmptyCsv,
     MissingColumn(&'static str),
-    InvalidColumnCount { line: usize, expected: usize, actual: usize },
-    InvalidNumber { line: usize, column: &'static str, value: String },
+    InvalidColumnCount {
+        line: usize,
+        expected: usize,
+        actual: usize,
+    },
+    InvalidNumber {
+        line: usize,
+        column: &'static str,
+        value: String,
+    },
     Storage(String),
 }
 
@@ -85,11 +108,77 @@ impl SqlitePortfolioRepository {
                     avg_cost REAL NOT NULL,
                     ltp REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    profile_name TEXT NOT NULL,
+                    meroalpha_api_key TEXT
+                );
                 ",
             )
             .map_storage_error()?;
 
         Ok(Self { connection })
+    }
+
+    pub fn load_settings(&self) -> AppSettings {
+        let result = self.connection.query_row(
+            "
+            SELECT profile_name, meroalpha_api_key
+            FROM app_settings
+            WHERE id = 1
+            ",
+            [],
+            |row| {
+                let profile_name: String = row.get(0)?;
+                let api_key: Option<String> = row.get(1)?;
+                Ok(AppSettings {
+                    profile_name,
+                    meroalpha_api_key: normalize_api_key(api_key.as_deref()),
+                })
+            },
+        );
+
+        match result {
+            Ok(settings) => settings,
+            Err(rusqlite::Error::QueryReturnedNoRows) => AppSettings::default(),
+            Err(error) => panic!("load app settings from sqlite: {error}"),
+        }
+    }
+
+    pub fn save_settings(&self, settings: &AppSettings) -> Result<(), PortfolioImportError> {
+        let profile_name = normalize_profile_name(&settings.profile_name);
+        let api_key = normalize_api_key(settings.meroalpha_api_key.as_deref());
+
+        self.connection
+            .execute(
+                "
+                INSERT INTO app_settings (id, profile_name, meroalpha_api_key)
+                VALUES (1, ?1, ?2)
+                ON CONFLICT(id) DO UPDATE SET
+                    profile_name = excluded.profile_name,
+                    meroalpha_api_key = excluded.meroalpha_api_key
+                ",
+                params![profile_name, api_key],
+            )
+            .map_storage_error()?;
+
+        Ok(())
+    }
+
+    pub fn update_ltp(&self, symbol: &str, ltp: f64) -> Result<(), PortfolioImportError> {
+        self.connection
+            .execute(
+                "
+                UPDATE holdings
+                SET ltp = ?1
+                WHERE symbol = ?2
+                ",
+                params![ltp, symbol.trim().to_ascii_uppercase()],
+            )
+            .map_storage_error()?;
+
+        Ok(())
     }
 
     fn load_holdings(&self) -> Result<Vec<HoldingImport>, PortfolioImportError> {
@@ -125,7 +214,10 @@ impl SqlitePortfolioRepository {
 
 impl PortfolioRepository for SqlitePortfolioRepository {
     fn replace_holdings(&mut self, holdings: Vec<HoldingImport>) {
-        let transaction = self.connection.transaction().expect("open holdings transaction");
+        let transaction = self
+            .connection
+            .transaction()
+            .expect("open holdings transaction");
         transaction
             .execute("DELETE FROM holdings", [])
             .expect("clear holdings table");
@@ -137,7 +229,12 @@ impl PortfolioRepository for SqlitePortfolioRepository {
                     INSERT INTO holdings (symbol, quantity, avg_cost, ltp)
                     VALUES (?1, ?2, ?3, ?4)
                     ",
-                    params![holding.symbol, holding.quantity, holding.avg_cost, holding.ltp],
+                    params![
+                        holding.symbol,
+                        holding.quantity,
+                        holding.avg_cost,
+                        holding.ltp
+                    ],
                 )
                 .expect("insert holding");
         }
@@ -199,7 +296,10 @@ pub fn parse_holdings_csv(input: &str) -> Result<Vec<HoldingImport>, PortfolioIm
 }
 
 pub fn portfolio_snapshot(holdings: &[HoldingImport]) -> PortfolioSnapshot {
-    let total_value: f64 = holdings.iter().map(|holding| holding.quantity * holding.ltp).sum();
+    let total_value: f64 = holdings
+        .iter()
+        .map(|holding| holding.quantity * holding.ltp)
+        .sum();
     let total_cost: f64 = holdings
         .iter()
         .map(|holding| holding.quantity * holding.avg_cost)
@@ -240,6 +340,10 @@ pub fn portfolio_snapshot(holdings: &[HoldingImport]) -> PortfolioSnapshot {
         unrealized_pl: total_value - total_cost,
         unrealized_pl_pct: percent(total_value - total_cost, total_cost),
     }
+}
+
+pub fn local_ltp_for_unavailable_price(current_ltp: f64) -> f64 {
+    if current_ltp > 0.0 { current_ltp } else { 1.0 }
 }
 
 fn split_csv_line(line: &str) -> Vec<String> {
@@ -307,13 +411,30 @@ fn percent(numerator: f64, denominator: f64) -> f64 {
     }
 }
 
+fn normalize_profile_name(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        AppSettings::default().profile_name
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn normalize_api_key(api_key: Option<&str>) -> Option<String> {
+    api_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn parses_holding_csv_with_required_columns() {
-        let csv = "symbol,quantity,avg_cost,ltp\nnabil,2450,450.20,562.10\nGBIME,3100,190.50,215.00\n";
+        let csv =
+            "symbol,quantity,avg_cost,ltp\nnabil,2450,450.20,562.10\nGBIME,3100,190.50,215.00\n";
 
         let holdings = parse_holdings_csv(csv).expect("valid holdings CSV");
 
@@ -423,6 +544,60 @@ mod tests {
 
         assert_eq!(snapshot.top_holding_symbol, Some("ALBSL".to_string()));
         assert_close(snapshot.total_value, 13_173.60);
+    }
+
+    #[test]
+    fn sqlite_repository_updates_ltp_without_touching_quantity_or_cost() {
+        let mut repository =
+            SqlitePortfolioRepository::open_in_memory().expect("sqlite repository opens");
+        repository.replace_holdings(vec![HoldingImport {
+            symbol: "NABIL".to_string(),
+            quantity: 10.0,
+            avg_cost: 500.0,
+            ltp: 510.0,
+        }]);
+
+        repository
+            .update_ltp("NABIL", 620.5)
+            .expect("ltp update succeeds");
+
+        let snapshot = repository.load_snapshot();
+        let position = &snapshot.positions[0];
+        assert_eq!(position.symbol, "NABIL");
+        assert_close(position.quantity, 10.0);
+        assert_close(position.avg_cost, 500.0);
+        assert_close(position.ltp, 620.5);
+        assert_close(position.market_value, 6_205.0);
+    }
+
+    #[test]
+    fn unavailable_upstream_prices_keep_or_fill_small_local_ltp() {
+        assert_close(local_ltp_for_unavailable_price(10.06), 10.06);
+        assert_close(local_ltp_for_unavailable_price(0.0), 1.0);
+        assert_close(local_ltp_for_unavailable_price(-4.0), 1.0);
+    }
+
+    #[test]
+    fn sqlite_repository_persists_local_profile_and_api_key() {
+        let repository =
+            SqlitePortfolioRepository::open_in_memory().expect("sqlite repository opens");
+
+        assert_eq!(repository.load_settings(), AppSettings::default());
+
+        repository
+            .save_settings(&AppSettings {
+                profile_name: "Asha Portfolio".to_string(),
+                meroalpha_api_key: Some("ma_test_key".to_string()),
+            })
+            .expect("settings save");
+
+        assert_eq!(
+            repository.load_settings(),
+            AppSettings {
+                profile_name: "Asha Portfolio".to_string(),
+                meroalpha_api_key: Some("ma_test_key".to_string()),
+            }
+        );
     }
 
     fn assert_close(actual: f64, expected: f64) {
