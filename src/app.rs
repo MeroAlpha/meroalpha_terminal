@@ -66,7 +66,6 @@ impl AppNotificationKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppRoute {
     Overview,
-    Market,
     Portfolio,
     BrokerAnalysis,
     StrategyLab,
@@ -76,11 +75,19 @@ impl AppRoute {
     fn key(self) -> &'static str {
         match self {
             Self::Overview => "overview",
-            Self::Market => "market",
             Self::Portfolio => "portfolio",
             Self::BrokerAnalysis => "broker-analysis",
             Self::StrategyLab => "strategy-lab",
         }
+    }
+
+    fn sidebar_routes() -> &'static [Self] {
+        &[
+            Self::Overview,
+            Self::Portfolio,
+            Self::BrokerAnalysis,
+            Self::StrategyLab,
+        ]
     }
 }
 
@@ -745,7 +752,7 @@ impl MeroAlphaTerminal {
             label,
             active: self.active_route == route,
             disabled,
-            on_click: Box::new(cx.listener(move |this, _, _, cx| {
+            on_click: Box::new(cx.listener(move |this, _, _window, cx| {
                 if !disabled {
                     this.active_route = route;
                     cx.notify();
@@ -842,7 +849,7 @@ impl MeroAlphaTerminal {
                     .child(content)
                     .into_any_element()
             }
-            AppRoute::Market | AppRoute::BrokerAnalysis | AppRoute::StrategyLab => div()
+            AppRoute::BrokerAnalysis | AppRoute::StrategyLab => div()
                 .flex_1()
                 .h_full()
                 .overflow_hidden()
@@ -914,9 +921,21 @@ mod tests {
     fn app_route_keys_are_stable_for_sidebar_selection() {
         assert_eq!(AppRoute::Overview.key(), "overview");
         assert_eq!(AppRoute::Portfolio.key(), "portfolio");
-        assert_eq!(AppRoute::Market.key(), "market");
         assert_eq!(AppRoute::BrokerAnalysis.key(), "broker-analysis");
         assert_eq!(AppRoute::StrategyLab.key(), "strategy-lab");
+    }
+
+    #[test]
+    fn sidebar_routes_do_not_include_duplicate_market_page() {
+        assert_eq!(
+            AppRoute::sidebar_routes(),
+            &[
+                AppRoute::Overview,
+                AppRoute::Portfolio,
+                AppRoute::BrokerAnalysis,
+                AppRoute::StrategyLab,
+            ]
+        );
     }
 }
 
@@ -926,37 +945,18 @@ impl Render for MeroAlphaTerminal {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let notification_layer = Root::render_notification_layer(window, cx);
-        let nav_items = vec![
-            self.nav_item(
-                AppRoute::Overview,
-                IconName::LayoutDashboard,
-                "Overview",
-                false,
-                cx,
-            ),
-            self.nav_item(AppRoute::Market, IconName::ChartPie, "Market", true, cx),
-            self.nav_item(
-                AppRoute::Portfolio,
-                IconName::HardDrive,
-                "Portfolio",
-                false,
-                cx,
-            ),
-            self.nav_item(
-                AppRoute::BrokerAnalysis,
-                IconName::Bot,
-                "Broker Analysis",
-                true,
-                cx,
-            ),
-            self.nav_item(
-                AppRoute::StrategyLab,
-                IconName::Star,
-                "Strategy Lab",
-                true,
-                cx,
-            ),
-        ];
+        let nav_items = AppRoute::sidebar_routes()
+            .iter()
+            .map(|route| {
+                let (icon, label, disabled) = match route {
+                    AppRoute::Overview => (IconName::LayoutDashboard, "Overview", false),
+                    AppRoute::Portfolio => (IconName::HardDrive, "Portfolio", false),
+                    AppRoute::BrokerAnalysis => (IconName::Bot, "Broker Analysis", true),
+                    AppRoute::StrategyLab => (IconName::Star, "Strategy Lab", true),
+                };
+                self.nav_item(*route, icon, label, disabled, cx)
+            })
+            .collect::<Vec<_>>();
 
         h_flex()
             .size_full()
