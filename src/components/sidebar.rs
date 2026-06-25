@@ -1,20 +1,26 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{IntoElement, ParentElement, Styled, div, px};
 use gpui_component::{
-    Icon, IconName, Sizable, Theme,
+    Disableable, Icon, IconName, Selectable, Sizable, Theme,
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputState},
     v_flex,
 };
 
+pub struct SidebarNavItem {
+    pub id: &'static str,
+    pub icon: IconName,
+    pub label: &'static str,
+    pub active: bool,
+    pub disabled: bool,
+    pub on_click: Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static>,
+}
+
 /// Renders the application sidebar with logo, navigation, and user footer.
-///
-/// `active_route` is a string key matching the current page so the correct
-/// nav item can be highlighted (e.g. `"portfolio"`).
 pub fn render_sidebar(
     theme: &Theme,
-    active_route: &str,
+    nav_items: Vec<SidebarNavItem>,
     profile_name: &str,
     api_key_configured: bool,
     settings_open: bool,
@@ -65,12 +71,9 @@ pub fn render_sidebar(
                 )
                 .child(
                     // ── Navigation ────────────────────────────────────────
-                    v_flex().gap_1().child(nav_item(
-                        IconName::HardDrive,
-                        "Portfolio",
-                        active_route == "portfolio",
-                        theme,
-                    )),
+                    v_flex()
+                        .gap_1()
+                        .children(nav_items.into_iter().map(|item| nav_item(item, theme))),
                 ),
         )
         .child(
@@ -201,43 +204,60 @@ fn api_key_visibility_icon(visible: bool) -> IconName {
     }
 }
 
-fn nav_item(icon: IconName, label: &'static str, active: bool, theme: &Theme) -> impl IntoElement {
-    h_flex()
-        .gap_3()
-        .rounded(theme.radius)
-        .px_4()
-        .py_3()
-        .bg(if active {
-            theme.sidebar_accent
-        } else {
-            theme.sidebar
-        })
-        .border_l_2()
-        .border_color(if active {
-            theme.sidebar_primary
-        } else {
-            theme.sidebar
-        })
-        .child(Icon::new(icon).text_color(if active {
-            theme.sidebar_primary
-        } else {
-            theme.muted_foreground
-        }))
+fn nav_item(item: SidebarNavItem, theme: &Theme) -> impl IntoElement {
+    let active = item.active;
+    let disabled = item.disabled;
+
+    Button::new(item.id)
+        .ghost()
+        .selected(active)
+        .disabled(disabled)
+        .w_full()
+        .justify_start()
+        .on_click(item.on_click)
         .child(
-            div()
-                .flex_1()
-                .text_color(if active {
-                    theme.sidebar_accent_foreground
+            h_flex()
+                .w_full()
+                .gap_3()
+                .rounded(theme.radius)
+                .px_4()
+                .py_3()
+                .bg(if active {
+                    theme.sidebar_accent
+                } else {
+                    theme.sidebar
+                })
+                .border_l_2()
+                .border_color(if active {
+                    theme.sidebar_primary
+                } else {
+                    theme.sidebar
+                })
+                .child(Icon::new(item.icon).text_color(if active {
+                    theme.sidebar_primary
+                } else if disabled {
+                    theme.muted_foreground
                 } else {
                     theme.sidebar_foreground
-                })
-                .text_size(px(14.))
-                .font_weight(if active {
-                    gpui::FontWeight::MEDIUM
-                } else {
-                    gpui::FontWeight::NORMAL
-                })
-                .child(label),
+                }))
+                .child(
+                    div()
+                        .flex_1()
+                        .text_color(if active {
+                            theme.sidebar_accent_foreground
+                        } else if disabled {
+                            theme.muted_foreground
+                        } else {
+                            theme.sidebar_foreground
+                        })
+                        .text_size(px(14.))
+                        .font_weight(if active {
+                            gpui::FontWeight::MEDIUM
+                        } else {
+                            gpui::FontWeight::NORMAL
+                        })
+                        .child(item.label),
+                ),
         )
 }
 

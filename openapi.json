@@ -1,0 +1,3816 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MeroAlpha Data Platform API",
+    "description": "Developer-first NEPSE market-data API for clean datasets, provenance, and MCP integrations.",
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.meroalpha.com",
+      "description": "Production API"
+    },
+    {
+      "url": "http://127.0.0.1:3000",
+      "description": "Local development"
+    }
+  ],
+  "paths": {
+    "/openapi.json": {
+      "get": {
+        "tags": ["OpenAPI"],
+        "summary": "OpenAPI 3.1 contract for REST, playground, and MCP integrations.",
+        "description": "Standard machine-readable API contract for MeroAlpha integration points.",
+        "operationId": "openapi_json",
+        "responses": {
+          "200": {
+            "description": "OpenAPI document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "openapi": "3.1.0",
+                  "info": {
+                    "title": "MeroAlpha Data Platform API",
+                    "version": "0.1.0"
+                  },
+                  "paths": {}
+                }
+              }
+            },
+            "x-meroalpha-fields": ["openapi", "info", "paths", "components"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "openapi-json",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "openapi",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-docs": false,
+        "x-meroalpha-playground": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/openapi.json"
+      }
+    },
+    "/v1/indicators/catalog": {
+      "get": {
+        "tags": ["Indicators"],
+        "summary": "Supported technical indicator specs, defaults, params, and output columns.",
+        "description": "Supported technical indicator specs, defaults, params, and output columns.",
+        "operationId": "indicators_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "key": "sma",
+                      "name": "Simple Moving Average",
+                      "category": "trend",
+                      "default_spec": "sma:20",
+                      "params": ["period"],
+                      "outputs": ["sma_20"],
+                      "description": "Rolling arithmetic mean of close prices."
+                    }
+                  ],
+                  "presets": [
+                    {
+                      "key": "trend_basic",
+                      "name": "Trend Basic",
+                      "indicators": ["sma:20", "ema:20", "macd:12:26:9"],
+                      "description": "Starter bundle for trend-following moving-average and MACD indicators."
+                    }
+                  ],
+                  "meta": {
+                    "count": 9,
+                    "preset_count": 4
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "presets",
+              "meta.count",
+              "meta.preset_count"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "indicators-catalog",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/indicators/catalog"
+      }
+    },
+    "/v1/indicators/daily": {
+      "get": {
+        "tags": ["Indicators"],
+        "summary": "Compute symbol-scoped daily technical indicators from historical OHLCV rows.",
+        "description": "Compute symbol-scoped daily technical indicators from historical OHLCV rows.",
+        "operationId": "indicators_daily",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "description": "Date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "2026-06-01"
+            },
+            "x-meroalpha-param-kind": "date",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "description": "Inclusive start date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "x-meroalpha-param-kind": "from",
+            "x-meroalpha-playground-default": "today-30",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "description": "Inclusive end date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "x-meroalpha-param-kind": "to",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "adjusted",
+            "description": "Return adjusted price rows when available.",
+            "schema": {
+              "type": "boolean",
+              "default": "false"
+            },
+            "x-meroalpha-param-kind": "boolean",
+            "x-meroalpha-playground-default": "false",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "preset",
+            "description": "Named indicator bundle such as trend_basic, momentum_basic, volatility_basic, or full_basic.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "trend_basic",
+                "momentum_basic",
+                "volatility_basic",
+                "full_basic"
+              ],
+              "default": "trend_basic"
+            },
+            "x-meroalpha-param-kind": "text",
+            "x-meroalpha-playground-default": "momentum_basic",
+            "x-meroalpha-param-options": [
+              {
+                "value": "trend_basic",
+                "label": "Trend Basic",
+                "description": "Starter bundle: SMA, EMA, and MACD."
+              },
+              {
+                "value": "momentum_basic",
+                "label": "Momentum Basic",
+                "description": "Starter bundle: RSI and stochastic oscillator."
+              },
+              {
+                "value": "volatility_basic",
+                "label": "Volatility Basic",
+                "description": "Starter bundle: ATR and Bollinger Bands."
+              },
+              {
+                "value": "full_basic",
+                "label": "Full Basic",
+                "description": "Starter bundle across trend, momentum, and volatility."
+              }
+            ],
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "indicators",
+            "description": "Comma-separated indicator specs such as sma:20,rsi:14,macd:12:26:9.",
+            "schema": {
+              "type": "string",
+              "default": "sma:20,ema:20,rsi:14,macd:12:26:9"
+            },
+            "x-meroalpha-param-kind": "text",
+            "x-meroalpha-playground-default": "sma:20",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "symbol": "NABIL",
+                      "date": "2026-06-01",
+                      "open": 850,
+                      "high": 870,
+                      "low": 845,
+                      "close": 860,
+                      "volume": 120000,
+                      "turnover": 103200000,
+                      "transactions": 1420,
+                      "indicators": {
+                        "rsi_14": 58.2,
+                        "stochastic_14_3_3": {
+                          "k": null,
+                          "d": null
+                        },
+                        "sma_20": null
+                      }
+                    }
+                  ],
+                  "meta": {
+                    "count": 1,
+                    "source": "NEPSE",
+                    "timezone": "Asia/Kathmandu",
+                    "symbol": "NABIL",
+                    "adjusted": false,
+                    "warmup_policy": "null_until_defined",
+                    "from": "2026-06-01",
+                    "to": "2026-06-01",
+                    "preset": "momentum_basic",
+                    "requested_indicators": ["preset:momentum_basic", "sma:20"],
+                    "expanded_indicators": [
+                      "rsi_14",
+                      "stochastic_14_3_3",
+                      "sma_20"
+                    ],
+                    "warmup_bars": 20,
+                    "available_rows": 1,
+                    "insufficient_data": true
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "data[].indicators",
+              "meta.count",
+              "meta.source",
+              "meta.timezone",
+              "meta.warmup_policy",
+              "meta.requested_indicators",
+              "meta.expanded_indicators",
+              "meta.warmup_bars",
+              "meta.available_rows",
+              "meta.insufficient_data"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "indicators-daily",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/indicators/daily?symbol=NABIL&from=2026-06-01&to=2026-06-01&preset=momentum_basic&indicators=sma:20",
+        "x-meroalpha-playground-params": [
+          {
+            "name": "period",
+            "description": "Playground helper for date selection; API clients may send date/from/to directly.",
+            "required": false,
+            "x-meroalpha-param-kind": "period",
+            "x-meroalpha-playground-default": "single",
+            "x-meroalpha-param-options": [
+              {
+                "value": "single",
+                "label": "Single Day",
+                "description": "Use the date parameter only."
+              },
+              {
+                "value": "7d",
+                "label": "Past 7 Days",
+                "description": "Use a generated from/to range ending on the selected date."
+              },
+              {
+                "value": "30d",
+                "label": "Past 30 Days",
+                "description": "Use a generated from/to range ending on the selected date."
+              },
+              {
+                "value": "custom",
+                "label": "Custom Range",
+                "description": "Use explicit from/to parameters."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "/v1/regimes/catalog": {
+      "get": {
+        "tags": ["Indicators"],
+        "summary": "Supported market regime detection methods, NEPSE daily profiles, and neutral market-context labels.",
+        "description": "Supported market regime detection methods, NEPSE daily profiles, and neutral market-context labels.",
+        "operationId": "regimes_catalog",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "key": "indicator",
+                      "name": "Indicator-Based Regime",
+                      "warmup_bars": 50,
+                      "description": "Rule-based regime detection from ADX, ATR, Bollinger Bands, and EMAs."
+                    }
+                  ],
+                  "profiles": [
+                    {
+                      "key": "nepse_daily",
+                      "name": "NEPSE Daily",
+                      "model_version": "regime-v1",
+                      "description": "Daily OHLCV profile tuned for end-of-day NEPSE market data."
+                    }
+                  ],
+                  "market_contexts": [
+                    {
+                      "key": "directional_uptrend_context",
+                      "market_state": "directional",
+                      "description": "Analytical market context only; not investment advice."
+                    }
+                  ],
+                  "meta": {
+                    "method_count": 3,
+                    "profile_count": 1,
+                    "market_context_count": 4
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "profiles",
+              "market_contexts",
+              "meta.method_count",
+              "meta.profile_count",
+              "meta.market_context_count"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "regimes-catalog",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/regimes/catalog"
+      }
+    },
+    "/v1/regimes/daily": {
+      "get": {
+        "tags": ["Indicators"],
+        "summary": "Compute symbol-scoped daily market regimes from historical OHLCV rows. Market context is analytical only and is not investment advice.",
+        "description": "Compute symbol-scoped daily market regimes from historical OHLCV rows. Market context is analytical only and is not investment advice.",
+        "operationId": "regimes_daily",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "description": "Date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "2026-06-01"
+            },
+            "x-meroalpha-param-kind": "date",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "description": "Inclusive start date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "x-meroalpha-param-kind": "from",
+            "x-meroalpha-playground-default": "today-30",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "description": "Inclusive end date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "x-meroalpha-param-kind": "to",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "adjusted",
+            "description": "Use adjusted daily prices when true.",
+            "schema": {
+              "type": "boolean",
+              "default": "false"
+            },
+            "x-meroalpha-param-kind": "text",
+            "x-meroalpha-playground-default": "false",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "method",
+            "description": "Regime detection method: indicator, hmm, or ensemble.",
+            "schema": {
+              "type": "string",
+              "enum": ["ensemble", "indicator", "hmm"],
+              "default": "ensemble"
+            },
+            "x-meroalpha-param-kind": "text",
+            "x-meroalpha-playground-default": "ensemble",
+            "x-meroalpha-param-options": [
+              {
+                "value": "ensemble",
+                "label": "Ensemble",
+                "description": "Default blend of indicator and HMM regime methods."
+              },
+              {
+                "value": "indicator",
+                "label": "Indicator",
+                "description": "Rule-based detector using ADX, bands, volatility, and EMAs."
+              },
+              {
+                "value": "hmm",
+                "label": "HMM",
+                "description": "Statistical detector from daily close-to-close returns."
+              }
+            ],
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "profile",
+            "description": "Regime profile. The initial supported profile is nepse_daily.",
+            "schema": {
+              "type": "string",
+              "enum": ["nepse_daily"],
+              "default": "nepse_daily"
+            },
+            "x-meroalpha-param-kind": "text",
+            "x-meroalpha-playground-default": "nepse_daily",
+            "x-meroalpha-param-options": [
+              {
+                "value": "nepse_daily",
+                "label": "NEPSE Daily",
+                "description": "End-of-day OHLCV profile tuned for NEPSE daily data."
+              }
+            ],
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "symbol": "NABIL",
+                      "date": "2026-06-01",
+                      "open": 850,
+                      "high": 870,
+                      "low": 845,
+                      "close": 860,
+                      "volume": 120000,
+                      "turnover": 103200000,
+                      "transactions": 1420,
+                      "regime": "trending_bullish",
+                      "confidence": 0.78,
+                      "method": "ensemble",
+                      "profile": "nepse_daily",
+                      "model_version": "regime-v1",
+                      "warmup_complete": true,
+                      "methods_agree": true,
+                      "indicator_regime": "trending_bullish",
+                      "hmm_regime": "trending_bullish",
+                      "adx": 27.4,
+                      "bb_width_percentile": 63.5,
+                      "trend_strength": 0.04,
+                      "hmm": {
+                        "current_state_index": 0,
+                        "state_probabilities": [0.74, 0.12, 0.14],
+                        "probability_entropy": 0.75,
+                        "expected_duration_bars": 8.5
+                      },
+                      "market_context": {
+                        "label": "directional_uptrend_context",
+                        "market_state": "directional",
+                        "description": "Analytical market context only; not investment advice."
+                      }
+                    }
+                  ],
+                  "meta": {
+                    "count": 1,
+                    "source": "NEPSE",
+                    "timezone": "Asia/Kathmandu",
+                    "symbol": "NABIL",
+                    "adjusted": false,
+                    "warmup_policy": "null_until_defined",
+                    "market_context_policy": "context_only_not_investment_advice",
+                    "from": "2026-06-01",
+                    "to": "2026-06-01",
+                    "method": "ensemble",
+                    "profile": "nepse_daily",
+                    "model_version": "regime-v1",
+                    "warmup_bars": 51,
+                    "available_rows": 120,
+                    "insufficient_data": false
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "data[].regime",
+              "data[].confidence",
+              "data[].methods_agree",
+              "data[].indicator_regime",
+              "data[].hmm_regime",
+              "data[].hmm",
+              "data[].market_context",
+              "meta.count",
+              "meta.source",
+              "meta.timezone",
+              "meta.warmup_policy",
+              "meta.market_context_policy",
+              "meta.method",
+              "meta.profile",
+              "meta.model_version",
+              "meta.warmup_bars",
+              "meta.available_rows",
+              "meta.insufficient_data"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "regimes-daily",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/regimes/daily?symbol=NABIL&from=2026-06-01&to=2026-06-01&method=ensemble",
+        "x-meroalpha-playground-params": [
+          {
+            "name": "period",
+            "description": "Playground helper for date selection; API clients may send date/from/to directly.",
+            "required": false,
+            "x-meroalpha-param-kind": "period",
+            "x-meroalpha-playground-default": "single",
+            "x-meroalpha-param-options": [
+              {
+                "value": "single",
+                "label": "Single Day",
+                "description": "Use the date parameter only."
+              },
+              {
+                "value": "7d",
+                "label": "Past 7 Days",
+                "description": "Use a generated from/to range ending on the selected date."
+              },
+              {
+                "value": "30d",
+                "label": "Past 30 Days",
+                "description": "Use a generated from/to range ending on the selected date."
+              },
+              {
+                "value": "custom",
+                "label": "Custom Range",
+                "description": "Use explicit from/to parameters."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "/v1/prices/daily": {
+      "get": {
+        "tags": ["Prices"],
+        "summary": "Historical daily OHLCV rows with source metadata.",
+        "description": "Historical daily OHLCV rows with source metadata. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "prices_daily",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "description": "Date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "2026-06-01"
+            },
+            "x-meroalpha-param-kind": "date",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "description": "Inclusive start date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "x-meroalpha-param-kind": "from",
+            "x-meroalpha-playground-default": "today-30",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "description": "Inclusive end date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "x-meroalpha-param-kind": "to",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "adjusted",
+            "description": "Return adjusted price rows when available.",
+            "schema": {
+              "type": "boolean",
+              "default": "false"
+            },
+            "x-meroalpha-param-kind": "boolean",
+            "x-meroalpha-playground-default": "false",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "symbol": "NABIL",
+                      "date": "2026-06-01",
+                      "open": 850,
+                      "high": 870,
+                      "low": 845,
+                      "close": 860,
+                      "volume": 120000,
+                      "turnover": 103200000,
+                      "transactions": 1420,
+                      "adjusted": false
+                    }
+                  ],
+                  "meta": {
+                    "source": "example_cache",
+                    "as_of": "2026-06-01T15:00:00+05:45",
+                    "timezone": "Asia/Kathmandu",
+                    "count": 1,
+                    "limit": 10,
+                    "has_more": true,
+                    "next_cursor": "opaque.signed.cursor"
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "prices-daily",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": true,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/prices/daily?symbol=NABIL&limit=10",
+        "x-meroalpha-playground-params": [
+          {
+            "name": "period",
+            "description": "Playground helper for date selection; API clients may send date/from/to directly.",
+            "required": false,
+            "x-meroalpha-param-kind": "period",
+            "x-meroalpha-playground-default": "single",
+            "x-meroalpha-param-options": [
+              {
+                "value": "single",
+                "label": "Single Day",
+                "description": "Use the date parameter only."
+              },
+              {
+                "value": "7d",
+                "label": "Past 7 Days",
+                "description": "Use a generated from/to range ending on the selected date."
+              },
+              {
+                "value": "30d",
+                "label": "Past 30 Days",
+                "description": "Use a generated from/to range ending on the selected date."
+              },
+              {
+                "value": "custom",
+                "label": "Custom Range",
+                "description": "Use explicit from/to parameters."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "/v1/auth/signup": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Create a user session account.",
+        "description": "Create a user session account.",
+        "operationId": "auth_signup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "email": "developer@meroalpha.test",
+                "password": "..."
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "email": "developer@meroalpha.test",
+                    "is_admin": false
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data", "message"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "auth-signup",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "mutation",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/auth/signup"
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Create a cookie-backed user session.",
+        "description": "Create a cookie-backed user session.",
+        "operationId": "auth_login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "email": "developer@meroalpha.test",
+                "password": "..."
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "email": "developer@meroalpha.test",
+                    "is_admin": false
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data", "session"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "auth-login",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "auth",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/auth/login"
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Clear the active user session cookie.",
+        "description": "Clear the active user session cookie.",
+        "operationId": "auth_logout",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "message": "logged out"
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data", "message"]
+          }
+        },
+        "security": [
+          {
+            "UserSession": []
+          }
+        ],
+        "x-meroalpha-auth": "user_session",
+        "x-meroalpha-endpoint-id": "auth-logout",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "mutation",
+        "x-meroalpha-visibility": "internal",
+        "x-meroalpha-playground": false,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/auth/logout"
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Return the active user session profile.",
+        "description": "Return the active user session profile.",
+        "operationId": "auth_me",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "email": "developer@meroalpha.test",
+                    "is_admin": false
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data", "session"]
+          }
+        },
+        "security": [
+          {
+            "UserSession": []
+          }
+        ],
+        "x-meroalpha-auth": "user_session",
+        "x-meroalpha-endpoint-id": "auth-me",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "auth",
+        "x-meroalpha-visibility": "internal",
+        "x-meroalpha-playground": false,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/auth/me"
+      }
+    },
+    "/v1/billing/plan": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "Return the active user's resolved plan and entitlements.",
+        "description": "Return the active user's resolved plan and entitlements.",
+        "operationId": "billing_plan",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "price": {
+                      "slug": "free",
+                      "name": "Free"
+                    },
+                    "product": {
+                      "slug": "market-data-api"
+                    },
+                    "entitlements": [
+                      {
+                        "dataset_key": "prices_daily",
+                        "allowed": true,
+                        "max_page_size": 100
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data"]
+          }
+        },
+        "security": [
+          {
+            "UserSession": []
+          }
+        ],
+        "x-meroalpha-auth": "user_session",
+        "x-meroalpha-endpoint-id": "billing-plan",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data",
+        "x-meroalpha-visibility": "developer",
+        "x-meroalpha-playground": false,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/billing/plan"
+      }
+    },
+    "/v1/billing/public-pricing": {
+      "get": {
+        "tags": ["Billing"],
+        "summary": "Return curated public pricing cards for landing page consumption.",
+        "description": "Return curated public pricing cards for landing page consumption.",
+        "operationId": "billing_public_pricing",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "slug": "free",
+                      "eyebrow": "Sandbox",
+                      "name": "Free",
+                      "description": "For learning the API, demos, and low-volume integration testing.",
+                      "currency": "NPR",
+                      "monthly_amount_minor": 0,
+                      "yearly_amount_minor": null,
+                      "yearly_savings_label": null,
+                      "featured": false,
+                      "contact_only": false,
+                      "cta_label": "Start Free",
+                      "features": [
+                        {
+                          "label": "Core market-data endpoints",
+                          "included": true,
+                          "strong": false
+                        },
+                        {
+                          "label": "Limited rate caps",
+                          "included": true,
+                          "strong": false
+                        },
+                        {
+                          "label": "Corporate action alerts",
+                          "included": true,
+                          "strong": false
+                        }
+                      ]
+                    }
+                  ],
+                  "meta": {
+                    "count": 1
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "billing-public-pricing",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/billing/public-pricing"
+      }
+    },
+    "/v1/dashboard/activity": {
+      "get": {
+        "tags": ["Dashboard"],
+        "summary": "Recent authenticated dashboard activity.",
+        "description": "Recent authenticated dashboard activity.",
+        "operationId": "dashboard_activity",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["summary", "meta"]
+          }
+        },
+        "security": [
+          {
+            "UserSession": []
+          }
+        ],
+        "x-meroalpha-auth": "user_session",
+        "x-meroalpha-endpoint-id": "dashboard-activity",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "summary_meta",
+        "x-meroalpha-visibility": "internal",
+        "x-meroalpha-playground": false,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/dashboard/activity"
+      }
+    },
+    "/v1/mutual-funds/nav": {
+      "get": {
+        "tags": ["Mutual Funds"],
+        "summary": "Listed mutual fund net asset value rows.",
+        "description": "Listed mutual fund net asset value rows. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "mutual_funds_nav",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NIBLSF",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "description": "Date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "2026-06-01"
+            },
+            "x-meroalpha-param-kind": "date",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "description": "Inclusive start date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "x-meroalpha-param-kind": "from",
+            "x-meroalpha-playground-default": "today-30",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "description": "Inclusive end date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "x-meroalpha-param-kind": "to",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "mutual-funds-nav",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/mutual-funds/nav?symbol=NIBLSF&limit=10",
+        "x-meroalpha-playground-params": [
+          {
+            "name": "period",
+            "description": "Playground helper for date selection; API clients may send date/from/to directly.",
+            "required": false,
+            "x-meroalpha-param-kind": "period",
+            "x-meroalpha-playground-default": "single",
+            "x-meroalpha-param-options": [
+              {
+                "value": "single",
+                "label": "Single Day",
+                "description": "Use the date parameter only."
+              },
+              {
+                "value": "7d",
+                "label": "Past 7 Days",
+                "description": "Use a generated from/to range ending on the selected date."
+              },
+              {
+                "value": "30d",
+                "label": "Past 30 Days",
+                "description": "Use a generated from/to range ending on the selected date."
+              },
+              {
+                "value": "custom",
+                "label": "Custom Range",
+                "description": "Use explicit from/to parameters."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "/v1/news": {
+      "get": {
+        "tags": ["News"],
+        "summary": "Market news and company announcements.",
+        "description": "Market news and company announcements. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "news",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "news",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/news?symbol=NABIL&limit=10"
+      }
+    },
+    "/v1/market/status": {
+      "get": {
+        "tags": ["Market"],
+        "summary": "Current NEPSE market status snapshot.",
+        "description": "Current NEPSE market status snapshot.",
+        "operationId": "market_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "status": "CLOSE",
+                    "is_open": false,
+                    "as_of": "2026-06-19T09:15:00Z",
+                    "last_traded_date": "2026-06-18"
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "market-status",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/market/status"
+      }
+    },
+    "/v1/indices": {
+      "get": {
+        "tags": ["Market"],
+        "summary": "Index snapshot rows.",
+        "description": "Index snapshot rows. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "indices",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "indices",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/indices?limit=10"
+      }
+    },
+    "/v1/market/movers": {
+      "get": {
+        "tags": ["Market"],
+        "summary": "Top gainers, losers, and turnover leaders for a market day.",
+        "description": "Top gainers, losers, and turnover leaders for a market day.",
+        "operationId": "market_movers",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date",
+            "description": "Date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "2026-06-01"
+            },
+            "x-meroalpha-param-kind": "date",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "top_gainers": [],
+                    "top_losers": [],
+                    "top_turnover": []
+                  },
+                  "meta": {
+                    "trade_date": "2026-06-01",
+                    "source": "daily_prices",
+                    "limit": 10
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "market-movers",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/market/movers?date=latest&limit=10"
+      }
+    },
+    "/v1/market/sectors": {
+      "get": {
+        "tags": ["Market"],
+        "summary": "Sector-level market breadth and turnover summary for a market day.",
+        "description": "Sector-level market breadth and turnover summary for a market day.",
+        "operationId": "market_sectors",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date",
+            "description": "Date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "2026-06-01"
+            },
+            "x-meroalpha-param-kind": "date",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "trade_date": "2026-06-01",
+                    "source": "daily_prices",
+                    "limit": 10
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "market-sectors",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/market/sectors?date=latest"
+      }
+    },
+    "/v1/sub-indices": {
+      "get": {
+        "tags": ["Market"],
+        "summary": "Sub-index snapshot rows.",
+        "description": "Sub-index snapshot rows. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "sub_indices",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "sub-indices",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/sub-indices?limit=10"
+      }
+    },
+    "/v1/api-keys": {
+      "get": {
+        "tags": ["API Keys"],
+        "summary": "List API keys owned by the active user.",
+        "description": "List API keys owned by the active user. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "api_keys_list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "security": [
+          {
+            "UserSession": []
+          }
+        ],
+        "x-meroalpha-auth": "user_session",
+        "x-meroalpha-endpoint-id": "api-keys-list",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "internal",
+        "x-meroalpha-playground": false,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/api-keys?limit=10"
+      },
+      "post": {
+        "tags": ["API Keys"],
+        "summary": "Create an API key and return plaintext once.",
+        "description": "Create an API key and return plaintext once.",
+        "operationId": "api_keys_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "name": "production"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "id": "key_123",
+                    "key_prefix": "ma_live",
+                    "token": "ma_live_example"
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data", "message"]
+          }
+        },
+        "security": [
+          {
+            "UserSession": []
+          }
+        ],
+        "x-meroalpha-auth": "user_session",
+        "x-meroalpha-endpoint-id": "api-keys-create",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "mutation",
+        "x-meroalpha-visibility": "internal",
+        "x-meroalpha-playground": false,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/api-keys"
+      }
+    },
+    "/v1/auth/check": {
+      "get": {
+        "tags": ["API Keys"],
+        "summary": "Validate a Bearer API key.",
+        "description": "Validate a Bearer API key.",
+        "operationId": "auth_check",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "valid": true
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data"]
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "x-meroalpha-auth": "api_key",
+        "x-meroalpha-endpoint-id": "auth-check",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/auth/check"
+      }
+    },
+    "/v1/api-keys/{id}/usage": {
+      "get": {
+        "tags": ["API Keys"],
+        "summary": "List usage rows for one API key.",
+        "description": "List usage rows for one API key. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "api_key_usage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "description": "Resource identifier.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "text",
+            "style": "simple"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "security": [
+          {
+            "UserSession": []
+          }
+        ],
+        "x-meroalpha-auth": "user_session",
+        "x-meroalpha-endpoint-id": "api-key-usage",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "internal",
+        "x-meroalpha-playground": false,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/api-keys/key_123/usage?limit=10"
+      }
+    },
+    "/v1/api-keys/{id}/revoke": {
+      "post": {
+        "tags": ["API Keys"],
+        "summary": "Revoke an API key owned by the active user.",
+        "description": "Revoke an API key owned by the active user.",
+        "operationId": "api_key_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "description": "Resource identifier.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "text",
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "message": "api key revoked"
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data", "message"]
+          }
+        },
+        "security": [
+          {
+            "UserSession": []
+          }
+        ],
+        "x-meroalpha-auth": "user_session",
+        "x-meroalpha-endpoint-id": "api-key-revoke",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "mutation",
+        "x-meroalpha-visibility": "internal",
+        "x-meroalpha-playground": false,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/api-keys/key_123/revoke"
+      }
+    },
+    "/v1/dashboard/overview": {
+      "get": {
+        "tags": ["Dashboard"],
+        "summary": "Dashboard usage and account overview.",
+        "description": "Dashboard usage and account overview.",
+        "operationId": "dashboard_overview",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "summary": {},
+                  "meta": {
+                    "count": 0
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["summary", "meta"]
+          }
+        },
+        "security": [
+          {
+            "UserSession": []
+          }
+        ],
+        "x-meroalpha-auth": "user_session",
+        "x-meroalpha-endpoint-id": "dashboard-overview",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "summary_meta",
+        "x-meroalpha-visibility": "internal",
+        "x-meroalpha-playground": false,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/dashboard/overview"
+      }
+    },
+    "/v1/usage/summary": {
+      "get": {
+        "tags": ["Dashboard"],
+        "summary": "Usage totals grouped by endpoint and status.",
+        "description": "Usage totals grouped by endpoint and status.",
+        "operationId": "usage_summary",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "summary": {},
+                  "meta": {
+                    "count": 0
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["summary", "meta"]
+          }
+        },
+        "security": [
+          {
+            "UserSession": []
+          }
+        ],
+        "x-meroalpha-auth": "user_session",
+        "x-meroalpha-endpoint-id": "usage-summary",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "summary_meta",
+        "x-meroalpha-visibility": "internal",
+        "x-meroalpha-playground": false,
+        "x-meroalpha-public-docs": false,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": false,
+        "x-meroalpha-example-request": "/v1/usage/summary"
+      }
+    },
+    "/v1/corporate-actions/dividends": {
+      "get": {
+        "tags": ["Corporate Actions"],
+        "summary": "Dividend announcements.",
+        "description": "Dividend announcements. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "dividends",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "dividends",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/corporate-actions/dividends?symbol=NABIL&limit=10"
+      }
+    },
+    "/v1/corporate-actions/bonus-shares": {
+      "get": {
+        "tags": ["Corporate Actions"],
+        "summary": "Bonus share actions.",
+        "description": "Bonus share actions. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "bonus_shares",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "bonus-shares",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/corporate-actions/bonus-shares?symbol=NABIL&limit=10"
+      }
+    },
+    "/v1/corporate-actions/right-shares": {
+      "get": {
+        "tags": ["Corporate Actions"],
+        "summary": "Right share actions.",
+        "description": "Right share actions. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "right_shares",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "right-shares",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/corporate-actions/right-shares?symbol=NABIL&limit=10"
+      }
+    },
+    "/v1/corporate-actions/agms": {
+      "get": {
+        "tags": ["Corporate Actions"],
+        "summary": "Annual general meeting events.",
+        "description": "Annual general meeting events. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "agms",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "agms",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/corporate-actions/agms?symbol=NABIL&limit=10"
+      }
+    },
+    "/v1/corporate-actions/book-closures": {
+      "get": {
+        "tags": ["Corporate Actions"],
+        "summary": "Book closure schedules.",
+        "description": "Book closure schedules. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "book_closures",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "book-closures",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/corporate-actions/book-closures?symbol=NABIL&limit=10"
+      }
+    },
+    "/v1/floorsheet": {
+      "get": {
+        "tags": ["Floorsheet"],
+        "summary": "Individual floorsheet trade rows.",
+        "description": "Individual floorsheet trade rows. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "floorsheet",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "description": "Date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "2026-06-01"
+            },
+            "x-meroalpha-param-kind": "date",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 500
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "id": 1459203,
+                      "date": "2026-06-01",
+                      "symbol": "NABIL",
+                      "buyer": 58,
+                      "seller": 34,
+                      "quantity": 500,
+                      "rate": 860,
+                      "amount": 430000
+                    }
+                  ],
+                  "meta": {
+                    "count": 1,
+                    "limit": 10,
+                    "has_more": true,
+                    "next_cursor": "opaque.signed.cursor"
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "floorsheet",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": true,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/floorsheet?symbol=NABIL&limit=10"
+      }
+    },
+    "/v1/floorsheet/summary": {
+      "get": {
+        "tags": ["Floorsheet"],
+        "summary": "Aggregate floorsheet turnover and trade summary.",
+        "description": "Aggregate floorsheet turnover and trade summary.",
+        "operationId": "floorsheet_summary",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "description": "Date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "2026-06-01"
+            },
+            "x-meroalpha-param-kind": "date",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "summary": {
+                    "symbol": "NABIL",
+                    "turnover": 430000
+                  },
+                  "meta": {
+                    "count": 1
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["summary", "meta"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "floorsheet-summary",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "summary_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/floorsheet/summary?symbol=NABIL"
+      }
+    },
+    "/v1/brokers/{broker_id}/activity": {
+      "get": {
+        "tags": ["Brokers"],
+        "summary": "Aggregate broker activity for a trading day.",
+        "description": "Aggregate broker activity for a trading day.",
+        "operationId": "broker_activity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "broker_id",
+            "description": "NEPSE broker identifier.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "22"
+            },
+            "x-meroalpha-param-kind": "broker_id",
+            "x-meroalpha-playground-default": "22",
+            "style": "simple"
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "description": "Date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "2026-06-01"
+            },
+            "x-meroalpha-param-kind": "date",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "summary": {
+                    "broker_id": "22",
+                    "turnover": 430000
+                  },
+                  "meta": {
+                    "count": 1
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["summary", "meta"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "broker-activity",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "summary_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/brokers/22/activity"
+      }
+    },
+    "/v1/brokers/{broker_id}/symbols": {
+      "get": {
+        "tags": ["Brokers"],
+        "summary": "Symbols traded by a broker.",
+        "description": "Symbols traded by a broker. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "broker_symbols",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "broker_id",
+            "description": "NEPSE broker identifier.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "22"
+            },
+            "x-meroalpha-param-kind": "broker_id",
+            "x-meroalpha-playground-default": "22",
+            "style": "simple"
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "description": "Date in YYYY-MM-DD format.",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "default": "2026-06-01"
+            },
+            "x-meroalpha-param-kind": "date",
+            "x-meroalpha-playground-default": "__today__",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "broker-symbols",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/brokers/22/symbols?limit=10"
+      }
+    },
+    "/v1/companies": {
+      "get": {
+        "tags": ["Companies"],
+        "summary": "Listed company directory.",
+        "description": "Listed company directory. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "companies",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "companies",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/companies?limit=10"
+      }
+    },
+    "/v1/companies/{symbol}": {
+      "get": {
+        "tags": ["Companies"],
+        "summary": "Company profile by symbol.",
+        "description": "Company profile by symbol.",
+        "operationId": "company",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "symbol": "NABIL",
+                    "name": "Nabil Bank Limited",
+                    "sector": "Commercial Banks",
+                    "status": "Active"
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "company",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/companies/NABIL"
+      }
+    },
+    "/v1/companies/{symbol}/corporate-actions": {
+      "get": {
+        "tags": ["Companies"],
+        "summary": "Corporate actions for one company.",
+        "description": "Corporate actions for one company. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "company_corporate_actions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "simple"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [
+                    {
+                      "symbol": "NABIL",
+                      "type": "dividend",
+                      "fiscal_year": "2080/81",
+                      "cash_percent": 11,
+                      "bonus_percent": 0,
+                      "announced_date": "2025-01-12"
+                    }
+                  ],
+                  "meta": {
+                    "count": 1,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "company-corporate-actions",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": true,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/companies/NABIL/corporate-actions?limit=10"
+      }
+    },
+    "/v1/companies/{symbol}/financials": {
+      "get": {
+        "tags": ["Financials"],
+        "summary": "Financial report metadata for one company.",
+        "description": "Financial report metadata for one company. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "company_financials",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "simple"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "company-financials",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/companies/NABIL/financials?limit=10"
+      }
+    },
+    "/v1/companies/{symbol}/financials/sources": {
+      "get": {
+        "tags": ["Financials"],
+        "summary": "Financial report source references for one company.",
+        "description": "Financial report source references for one company. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "company_financial_sources",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "simple"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "company-financial-sources",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/companies/NABIL/financials/sources?limit=10"
+      }
+    },
+    "/v1/companies/{symbol}/financials/income-statement": {
+      "get": {
+        "tags": ["Financials"],
+        "summary": "Income statement rows for one company.",
+        "description": "Income statement rows for one company. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "company_income_statement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "simple"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "company-income-statement",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/companies/NABIL/financials/income-statement?limit=10"
+      }
+    },
+    "/v1/companies/{symbol}/financials/balance-sheet": {
+      "get": {
+        "tags": ["Financials"],
+        "summary": "Balance sheet rows for one company.",
+        "description": "Balance sheet rows for one company. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "company_balance_sheet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "simple"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "company-balance-sheet",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/companies/NABIL/financials/balance-sheet?limit=10"
+      }
+    },
+    "/v1/companies/{symbol}/financials/key-metrics": {
+      "get": {
+        "tags": ["Financials"],
+        "summary": "Key metric rows for one company.",
+        "description": "Key metric rows for one company. List pagination uses signed opaque cursor tokens; pass meta.next_cursor back unchanged as cursor for the next page.",
+        "operationId": "company_key_metrics",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "simple"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Maximum rows to return. Values above the endpoint maximum are clamped.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": "10",
+              "maximum": 100
+            },
+            "x-meroalpha-param-kind": "limit",
+            "x-meroalpha-playground-default": "10",
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "description": "Opaque signed cursor from meta.next_cursor.",
+            "schema": {
+              "type": "string"
+            },
+            "x-meroalpha-param-kind": "cursor",
+            "x-meroalpha-playground-default": "",
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": [],
+                  "meta": {
+                    "count": 0,
+                    "limit": 10,
+                    "has_more": false,
+                    "next_cursor": null
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": [
+              "data",
+              "meta.count",
+              "meta.limit",
+              "meta.has_more",
+              "meta.next_cursor"
+            ]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "company-key-metrics",
+        "x-meroalpha-pagination": "cursor",
+        "x-meroalpha-response-envelope": "data_meta",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/companies/NABIL/financials/key-metrics?limit=10"
+      }
+    },
+    "/v1/companies/{symbol}/metrics": {
+      "get": {
+        "tags": ["Companies"],
+        "summary": "Computed company metrics summary.",
+        "description": "Computed company metrics summary.",
+        "operationId": "company_metrics",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "symbol": "NABIL"
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "company-metrics",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": false,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/companies/NABIL/metrics"
+      }
+    },
+    "/v1/companies/{symbol}/profile": {
+      "get": {
+        "tags": ["Companies"],
+        "summary": "Company profile alias used by API consumers.",
+        "description": "Company profile alias used by API consumers.",
+        "operationId": "company_profile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "symbol",
+            "description": "NEPSE trading symbol.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "NABIL"
+            },
+            "x-meroalpha-param-kind": "symbol",
+            "x-meroalpha-playground-default": "NABIL",
+            "style": "simple"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                },
+                "example": {
+                  "data": {
+                    "symbol": "NABIL",
+                    "name": "Nabil Bank Limited",
+                    "sector": "Commercial Banks",
+                    "status": "Active"
+                  }
+                }
+              }
+            },
+            "x-meroalpha-fields": ["data"]
+          }
+        },
+        "x-meroalpha-auth": "public",
+        "x-meroalpha-endpoint-id": "company-profile",
+        "x-meroalpha-pagination": "none",
+        "x-meroalpha-response-envelope": "data",
+        "x-meroalpha-visibility": "public",
+        "x-meroalpha-playground": true,
+        "x-meroalpha-public-docs": true,
+        "x-meroalpha-developer-console": true,
+        "x-meroalpha-preview": true,
+        "x-meroalpha-mcp": true,
+        "x-meroalpha-example-request": "/v1/companies/NABIL/profile"
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "MeroAlpha API key"
+      },
+      "UserSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "meroalpha_user_session"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "OpenAPI"
+    },
+    {
+      "name": "Indicators"
+    },
+    {
+      "name": "Prices"
+    },
+    {
+      "name": "Auth"
+    },
+    {
+      "name": "Billing"
+    },
+    {
+      "name": "Dashboard"
+    },
+    {
+      "name": "Mutual Funds"
+    },
+    {
+      "name": "News"
+    },
+    {
+      "name": "Market"
+    },
+    {
+      "name": "API Keys"
+    },
+    {
+      "name": "Corporate Actions"
+    },
+    {
+      "name": "Floorsheet"
+    },
+    {
+      "name": "Brokers"
+    },
+    {
+      "name": "Companies"
+    },
+    {
+      "name": "Financials"
+    }
+  ],
+  "x-meroalpha-openapi-generator": "aide",
+  "x-meroalpha-extension-keys": {
+    "auth": "x-meroalpha-auth",
+    "developerConsole": "x-meroalpha-developer-console",
+    "docs": "x-meroalpha-docs",
+    "endpointId": "x-meroalpha-endpoint-id",
+    "exampleRequest": "x-meroalpha-example-request",
+    "fields": "x-meroalpha-fields",
+    "generator": "x-meroalpha-openapi-generator",
+    "mcp": "x-meroalpha-mcp",
+    "pagination": "x-meroalpha-pagination",
+    "paramKind": "x-meroalpha-param-kind",
+    "paramOptions": "x-meroalpha-param-options",
+    "playground": "x-meroalpha-playground",
+    "playgroundDefault": "x-meroalpha-playground-default",
+    "playgroundParams": "x-meroalpha-playground-params",
+    "preview": "x-meroalpha-preview",
+    "publicDocs": "x-meroalpha-public-docs",
+    "responseEnvelope": "x-meroalpha-response-envelope",
+    "visibility": "x-meroalpha-visibility"
+  }
+}

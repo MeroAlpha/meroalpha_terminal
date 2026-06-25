@@ -1,10 +1,9 @@
-use gpui::prelude::FluentBuilder;
 use gpui::{
-    AppContext, Context, IntoElement, ParentElement, PathPromptOptions, Render, Styled, WeakEntity,
-    Window, div, px,
+    AnyElement, AppContext, Context, IntoElement, ParentElement, PathPromptOptions, Render, Styled,
+    WeakEntity, Window, div, px,
 };
 use gpui_component::{
-    ActiveTheme as _, Disableable, Icon, IconName, Sizable, WindowExt,
+    ActiveTheme as _, Disableable, Icon, IconName, Root, Sizable, WindowExt,
     button::{Button, ButtonVariants},
     h_flex,
     input::InputState,
@@ -15,7 +14,7 @@ use gpui_component::{
 
 use meroalpha_terminal::{
     db::open_app_db,
-    meroalpha_api::{MeroAlphaClient, PriceFailure, PriceUpdate},
+    meroalpha_api::{MeroAlphaClient, OverviewMarketData, PriceFailure, PriceUpdate},
     portfolio::{
         AppSettings, PortfolioRepository, PortfolioSnapshot, SqlitePortfolioRepository,
         local_ltp_for_unavailable_price, parse_holdings_csv, portfolio_snapshot,
@@ -26,10 +25,13 @@ use meroalpha_terminal::components::{
     empty_state::render_empty_state,
     holdings_table::render_holdings_table,
     kpi_cards::render_kpis,
+    overview::render_overview_page,
     right_rail::render_right_rail,
-    sidebar::render_sidebar,
-    theme::{StatusKind, status_strip, status_tone},
+    sidebar::{SidebarNavItem, render_sidebar},
+    theme::{StatusKind, status_tone},
+    top_bar::render_top_bar,
 };
+use meroalpha_terminal::overview::{MoverTab, OverviewSnapshot};
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
@@ -61,14 +63,37 @@ impl AppNotificationKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppRoute {
+    Overview,
+    Market,
+    Portfolio,
+    BrokerAnalysis,
+    StrategyLab,
+}
+
+impl AppRoute {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Overview => "overview",
+            Self::Market => "market",
+            Self::Portfolio => "portfolio",
+            Self::BrokerAnalysis => "broker-analysis",
+            Self::StrategyLab => "strategy-lab",
+        }
+    }
+}
+
 pub struct MeroAlphaTerminal {
     /// SQLite-backed repository, always valid after new() returns.
     repository: SqlitePortfolioRepository,
     settings: AppSettings,
     profile_name_input: gpui::Entity<InputState>,
     api_key_input: gpui::Entity<InputState>,
+    search_input: gpui::Entity<InputState>,
     settings_open: bool,
     api_key_visible: bool,
+    active_route: AppRoute,
     /// None until the user imports a CSV for the first time.
     snapshot: Option<PortfolioSnapshot>,
     /// Non-empty when the last import attempt produced an error.
@@ -77,6 +102,11 @@ pub struct MeroAlphaTerminal {
     price_refresh_error: Option<String>,
     price_refresh_status: Option<String>,
     refreshing_prices: bool,
+    overview_market_data: Option<OverviewMarketData>,
+    overview_refresh_error: Option<String>,
+    overview_refresh_status: Option<String>,
+    refreshing_overview: bool,
+    overview_mover_tab: MoverTab,
 }
 
 impl MeroAlphaTerminal {
@@ -92,6 +122,8 @@ impl MeroAlphaTerminal {
                 .masked(true)
                 .default_value(settings.meroalpha_api_key.clone().unwrap_or_default())
         });
+        let search_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Search ticker, broker..."));
 
         // Load whatever was persisted from a previous session.
         let snapshot = {
@@ -103,20 +135,35 @@ impl MeroAlphaTerminal {
             }
         };
 
-        Self {
+        let this = Self {
             repository,
             settings,
             profile_name_input,
             api_key_input,
+            search_input,
             settings_open: false,
             api_key_visible: false,
+            active_route: AppRoute::Overview,
             snapshot,
             import_error: None,
             settings_error: None,
             price_refresh_error: None,
             price_refresh_status: None,
             refreshing_prices: false,
+            overview_market_data: None,
+            overview_refresh_error: None,
+            overview_refresh_status: None,
+            refreshing_overview: false,
+            overview_mover_tab: MoverTab::Gainers,
+        };
+
+        if this.settings.meroalpha_api_key.is_some() {
+            cx.defer_in(window, |this, window, cx| {
+                this.refresh_overview_market_data(window, cx, false);
+            });
         }
+
+        this
     }
 
     fn push_notification(
@@ -128,54 +175,25 @@ impl MeroAlphaTerminal {
         message: impl Into<gpui::SharedString>,
     ) {
         let message = message.into();
-        let title: gpui::SharedString = title.into();
+        let theme = cx.theme().clone();
+        let tone = status_tone(&theme, kind.status_kind());
+        let content: gpui::SharedString = format!("{title}: {message}").into();
         let notification = Notification::new()
-            .content(move |_, _, cx| {
-                let theme = cx.theme().clone();
-                let status_kind = kind.status_kind();
-                let tone = status_tone(&theme, status_kind);
-
-                h_flex()
-                    .gap_3()
-                    .items_start()
-                    .child(
-                        div()
-                            .size(px(24.))
-                            .flex_shrink_0()
-                            .rounded(px(6.))
-                            .border_1()
-                            .border_color(tone.border)
-                            .bg(tone.surface)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(Icon::new(kind.icon()).xsmall().text_color(tone.accent)),
-                    )
-                    .child(
-                        v_flex()
-                            .min_w(px(0.))
-                            .gap_0p5()
-                            .child(
-                                div()
-                                    .text_size(px(13.))
-                                    .line_height(px(18.))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(theme.foreground)
-                                    .child(title.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .line_height(px(17.))
-                                    .text_color(theme.muted_foreground)
-                                    .child(message.clone()),
-                            ),
-                    )
-                    .into_any_element()
-            })
+            .message(content)
+            .icon(Icon::new(kind.icon()).small().text_color(tone.accent))
             .w(px(360.));
 
         window.push_notification(notification, cx);
+    }
+
+    fn show_notifications_ping(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.push_notification(
+            window,
+            cx,
+            AppNotificationKind::Info,
+            "Notifications",
+            "Toast notifications are enabled.",
+        );
     }
 
     // ── CSV import ────────────────────────────────────────────────────────────
@@ -445,6 +463,133 @@ impl MeroAlphaTerminal {
         }
     }
 
+    // ── Overview market data ─────────────────────────────────────────────────
+
+    fn refresh_overview_market_data(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        notify_user: bool,
+    ) {
+        let Some(api_key) = self.settings.meroalpha_api_key.clone() else {
+            let message = "Set your MeroAlpha API key first.";
+            eprintln!("[overview-refresh] skipped: {message}");
+            self.overview_refresh_error = Some(message.to_string());
+            self.overview_refresh_status = None;
+            if notify_user {
+                self.push_notification(
+                    window,
+                    cx,
+                    AppNotificationKind::Warning,
+                    "Overview refresh",
+                    message,
+                );
+            }
+            cx.notify();
+            return;
+        };
+
+        let symbols = self.overview_symbols();
+        eprintln!(
+            "[overview-refresh] start notify_user={notify_user} api_key=set preferred_symbols={} existing_market_data={}",
+            symbols.len(),
+            self.overview_market_data.is_some()
+        );
+        self.refreshing_overview = true;
+        self.overview_refresh_error = None;
+        self.overview_refresh_status =
+            Some("Refreshing Overview from MeroAlpha Data API...".into());
+        if notify_user {
+            self.push_notification(
+                window,
+                cx,
+                AppNotificationKind::Info,
+                "Overview refresh",
+                "Fetching market overview from MeroAlpha Data API.",
+            );
+        }
+        cx.notify();
+
+        cx.spawn_in(
+            window,
+            async move |this: WeakEntity<MeroAlphaTerminal>, cx| {
+                let fetch_result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let client = MeroAlphaClient::new(api_key);
+                        eprintln!(
+                            "[overview-refresh] client base_url={} preferred_symbols={:?}",
+                            client.base_url(),
+                            symbols
+                        );
+                        client.overview_market_data(&symbols)
+                    })
+                    .await;
+
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.refreshing_overview = false;
+                    match fetch_result {
+                        Ok(market_data) => {
+                            let index_count = market_data.indices.len();
+                            let mover_count = market_data
+                                .gainers
+                                .len()
+                                .max(market_data.losers.len())
+                                .max(market_data.turnover.len());
+                            eprintln!(
+                                "[overview-refresh] success indices={index_count} movers={mover_count}"
+                            );
+                            this.overview_market_data = Some(market_data);
+                            this.overview_refresh_error = None;
+                            this.overview_refresh_status = Some(format!(
+                                "Loaded {index_count} index rows and {mover_count} mover rows from the API."
+                            ));
+                            if notify_user {
+                                this.push_notification(
+                                    window,
+                                    cx,
+                                    AppNotificationKind::Success,
+                                    "Overview refreshed",
+                                    "MeroAlpha Data API overview data loaded.",
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            let message = format!("Could not load Overview: {:?}", error);
+                            eprintln!("[overview-refresh] error {message}");
+                            this.overview_refresh_error = Some(message.clone());
+                            this.overview_refresh_status = None;
+                            if notify_user {
+                                this.push_notification(
+                                    window,
+                                    cx,
+                                    AppNotificationKind::Error,
+                                    "Overview refresh failed",
+                                    message,
+                                );
+                            }
+                        }
+                    }
+                    cx.notify();
+                });
+            },
+        )
+        .detach();
+    }
+
+    fn overview_symbols(&self) -> Vec<String> {
+        self.snapshot
+            .as_ref()
+            .map(|snapshot| {
+                snapshot
+                    .positions
+                    .iter()
+                    .map(|position| position.symbol.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     // ── Local settings ────────────────────────────────────────────────────────
 
     fn open_settings_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -586,35 +731,27 @@ impl MeroAlphaTerminal {
             )
     }
 
-    fn render_import_error(&self) -> Option<impl IntoElement> {
-        self.import_error
-            .as_ref()
-            .map(|msg| status_strip(StatusKind::Error, "Import failed", msg.clone()))
-    }
-
-    fn render_settings_error(&self) -> Option<impl IntoElement> {
-        self.settings_error
-            .as_ref()
-            .map(|msg| status_strip(StatusKind::Error, "Settings save failed", msg.clone()))
-    }
-
-    fn render_price_refresh_message(&self) -> Option<impl IntoElement> {
-        self.price_refresh_error
-            .as_ref()
-            .map(|msg| status_strip(StatusKind::Error, "Price refresh failed", msg.clone()))
-            .or_else(|| {
-                self.price_refresh_status.as_ref().map(|msg| {
-                    status_strip(price_refresh_status_kind(msg), "Price refresh", msg.clone())
-                })
-            })
-    }
-
-    fn render_page_alerts(&self) -> impl IntoElement {
-        v_flex()
-            .gap_2()
-            .when_some(self.render_import_error(), |el, err| el.child(err))
-            .when_some(self.render_settings_error(), |el, err| el.child(err))
-            .when_some(self.render_price_refresh_message(), |el, msg| el.child(msg))
+    fn nav_item(
+        &self,
+        route: AppRoute,
+        icon: IconName,
+        label: &'static str,
+        disabled: bool,
+        cx: &mut Context<Self>,
+    ) -> SidebarNavItem {
+        SidebarNavItem {
+            id: route.key(),
+            icon,
+            label,
+            active: self.active_route == route,
+            disabled,
+            on_click: Box::new(cx.listener(move |this, _, _, cx| {
+                if !disabled {
+                    this.active_route = route;
+                    cx.notify();
+                }
+            })),
+        }
     }
 
     fn render_portfolio_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -637,7 +774,6 @@ impl MeroAlphaTerminal {
                         .gap_4()
                         .overflow_y_scrollbar()
                         .child(self.render_page_header(cx))
-                        .child(self.render_page_alerts())
                         .child(render_kpis(snapshot, &theme))
                         .child(render_holdings_table(snapshot, &theme)),
                 )
@@ -650,13 +786,69 @@ impl MeroAlphaTerminal {
         v_flex()
             .size_full()
             .bg(theme.background)
-            .child(div().px_6().pt_4().child(self.render_page_alerts()))
             .child(render_empty_state(
                 &theme,
                 cx.listener(|this, _, window, cx| {
                     this.open_csv_picker(window, cx);
                 }),
             ))
+    }
+
+    fn render_overview_route(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
+        let mut overview = OverviewSnapshot::from_portfolio(self.snapshot.as_ref());
+        if let Some(market_data) = self.overview_market_data.clone() {
+            overview = overview.with_market_data(market_data, self.overview_mover_tab);
+        } else if self.overview_refresh_error.is_some() {
+            overview = overview.with_market_error();
+        }
+        render_overview_page(
+            overview,
+            theme,
+            cx.listener(|this, _, _, cx| {
+                this.overview_mover_tab = MoverTab::Gainers;
+                cx.notify();
+            }),
+            cx.listener(|this, _, _, cx| {
+                this.overview_mover_tab = MoverTab::Losers;
+                cx.notify();
+            }),
+            cx.listener(|this, _, _, cx| {
+                this.overview_mover_tab = MoverTab::Turnover;
+                cx.notify();
+            }),
+        )
+    }
+
+    fn render_active_route(&self, cx: &mut Context<Self>) -> AnyElement {
+        match self.active_route {
+            AppRoute::Overview => div()
+                .flex_1()
+                .h_full()
+                .overflow_hidden()
+                .child(self.render_overview_route(cx))
+                .into_any_element(),
+            AppRoute::Portfolio => {
+                let content = if self.snapshot.is_some() {
+                    self.render_portfolio_page(cx).into_any_element()
+                } else {
+                    self.render_empty_page(cx).into_any_element()
+                };
+
+                div()
+                    .flex_1()
+                    .h_full()
+                    .overflow_hidden()
+                    .child(content)
+                    .into_any_element()
+            }
+            AppRoute::Market | AppRoute::BrokerAnalysis | AppRoute::StrategyLab => div()
+                .flex_1()
+                .h_full()
+                .overflow_hidden()
+                .child(self.render_overview_route(cx))
+                .into_any_element(),
+        }
     }
 }
 
@@ -717,20 +909,61 @@ mod tests {
             AppNotificationKind::Warning
         );
     }
+
+    #[test]
+    fn app_route_keys_are_stable_for_sidebar_selection() {
+        assert_eq!(AppRoute::Overview.key(), "overview");
+        assert_eq!(AppRoute::Portfolio.key(), "portfolio");
+        assert_eq!(AppRoute::Market.key(), "market");
+        assert_eq!(AppRoute::BrokerAnalysis.key(), "broker-analysis");
+        assert_eq!(AppRoute::StrategyLab.key(), "strategy-lab");
+    }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
 
 impl Render for MeroAlphaTerminal {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
+        let notification_layer = Root::render_notification_layer(window, cx);
+        let nav_items = vec![
+            self.nav_item(
+                AppRoute::Overview,
+                IconName::LayoutDashboard,
+                "Overview",
+                false,
+                cx,
+            ),
+            self.nav_item(AppRoute::Market, IconName::ChartPie, "Market", true, cx),
+            self.nav_item(
+                AppRoute::Portfolio,
+                IconName::HardDrive,
+                "Portfolio",
+                false,
+                cx,
+            ),
+            self.nav_item(
+                AppRoute::BrokerAnalysis,
+                IconName::Bot,
+                "Broker Analysis",
+                true,
+                cx,
+            ),
+            self.nav_item(
+                AppRoute::StrategyLab,
+                IconName::Star,
+                "Strategy Lab",
+                true,
+                cx,
+            ),
+        ];
 
         h_flex()
             .size_full()
             .bg(theme.background)
             .child(render_sidebar(
                 &theme,
-                "portfolio",
+                nav_items,
                 &self.settings.profile_name,
                 self.settings.meroalpha_api_key.is_some(),
                 self.settings_open,
@@ -750,18 +983,27 @@ impl Render for MeroAlphaTerminal {
                     this.cancel_settings_editor(window, cx);
                 }),
             ))
-            .child(if self.snapshot.is_some() {
-                div()
+            .child(
+                v_flex()
                     .flex_1()
                     .h_full()
-                    .overflow_scrollbar()
-                    .child(self.render_portfolio_page(cx))
-            } else {
-                div()
-                    .flex_1()
-                    .h_full()
-                    .overflow_scrollbar()
-                    .child(self.render_empty_page(cx))
-            })
+                    .min_w(px(0.))
+                    .child(render_top_bar(
+                        &theme,
+                        &self.search_input,
+                        self.refreshing_overview,
+                        cx.listener(|this, _, window, cx| {
+                            this.refresh_overview_market_data(window, cx, true);
+                        }),
+                        cx.listener(|this, _, window, cx| {
+                            this.show_notifications_ping(window, cx);
+                        }),
+                        cx.listener(|this, _, window, cx| {
+                            this.open_settings_editor(window, cx);
+                        }),
+                    ))
+                    .child(self.render_active_route(cx)),
+            )
+            .children(notification_layer)
     }
 }

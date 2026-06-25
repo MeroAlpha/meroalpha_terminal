@@ -31,6 +31,15 @@ For that export, `Last Closing Price` is used as the temporary cost basis until 
 - Tested CSV parsing and portfolio math.
 - SQLite-backed portfolio repository using `rusqlite`.
 - Local profile name and MeroAlpha Data Platform API key settings stored in SQLite.
+- Overview page backed by MeroAlpha Data API market/index data, with live local portfolio performance when holdings are imported.
+
+## Overview Page Data Boundary
+
+The Overview page is a local terminal dashboard. Market Pulse uses `GET /v1/indices` with `GET /v1/sub-indices` as an empty-index fallback. Top Movers use `GET /v1/market/movers` for gainers, losers, and turnover leaders on the latest traded date.
+
+Portfolio Performance is derived from the locally imported holdings snapshot when available. If no API key is configured or the API returns no rows, Overview panels show an empty/error state rather than placeholder market data.
+
+The page is informational only. It does not place trades, send broker orders, or provide execution controls.
 
 ## Local Settings
 
@@ -48,7 +57,7 @@ After importing holdings and saving a MeroAlpha Data Platform API key, use `Refr
 The app calls:
 
 ```text
-GET /v1/prices/daily?symbol={SYMBOL}&period=single&adjusted=false&limit=1
+GET /v1/prices/daily?symbol={SYMBOL}&date={LAST_TRADED_DATE}&adjusted=false&limit=1
 Authorization: Bearer {API_KEY}
 ```
 

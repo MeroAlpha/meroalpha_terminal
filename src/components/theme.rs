@@ -100,6 +100,7 @@ pub fn section_heading(
     detail: impl Into<gpui::SharedString>,
 ) -> impl IntoElement {
     h_flex()
+        .gap_3()
         .justify_between()
         .items_center()
         .child(
