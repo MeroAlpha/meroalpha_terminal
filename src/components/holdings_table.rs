@@ -10,7 +10,7 @@ use crate::components::theme::{
 /// Renders the full holdings ledger panel (header + rows).
 pub fn render_holdings_table(portfolio: &PortfolioSnapshot, theme: &Theme) -> impl IntoElement {
     elevated_panel(theme)
-        .min_w(px(720.))
+        .w_full()
         .child(div().mb_5().child(section_heading(
             theme,
             "Holdings Ledger",

@@ -1,23 +1,25 @@
 use gpui::prelude::FluentBuilder;
-use gpui::{IntoElement, ParentElement, Styled, div, px};
+use gpui::{IntoElement, ParentElement, Styled, div, px, InteractiveElement as _};
 use gpui_component::{
-    Disableable, Icon, IconName, Selectable, Sizable, Theme,
+    Icon, IconName, Selectable, Sizable, Theme,
     button::{Button, ButtonVariants},
     h_flex,
     input::{Input, InputState},
     v_flex,
 };
 
+type ClickHandler = Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static>;
+
 pub struct SidebarNavItem {
     pub id: &'static str,
     pub icon: IconName,
     pub label: &'static str,
     pub active: bool,
-    pub disabled: bool,
-    pub on_click: Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static>,
+    pub on_click: ClickHandler,
 }
 
 /// Renders the application sidebar with logo, navigation, and user footer.
+#[allow(clippy::too_many_arguments)]
 pub fn render_sidebar(
     theme: &Theme,
     nav_items: Vec<SidebarNavItem>,
@@ -59,13 +61,13 @@ pub fn render_sidebar(
                                         .text_color(theme.sidebar_foreground)
                                         .text_size(px(18.))
                                         .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .child("NEPSE Terminal"),
+                                        .child("MeroAlpha Terminal"),
                                 )
                                 .child(
                                     div()
                                         .text_color(theme.sidebar_primary)
                                         .text_size(px(10.))
-                                        .child("MEROALPHA"),
+                                        .child("NEPSE MARKET"),
                                 ),
                         ),
                 )
@@ -113,6 +115,9 @@ pub fn render_sidebar(
                                                 .xsmall()
                                                 .ghost()
                                                 .icon(api_key_visibility_icon(api_key_visible))
+                                                .tooltip(api_key_visibility_tooltip(
+                                                    api_key_visible,
+                                                ))
                                                 .on_click(on_toggle_api_key_visibility),
                                         ),
                                     ),
@@ -204,14 +209,20 @@ fn api_key_visibility_icon(visible: bool) -> IconName {
     }
 }
 
+fn api_key_visibility_tooltip(visible: bool) -> &'static str {
+    if visible {
+        "Hide API key"
+    } else {
+        "Show API key"
+    }
+}
+
 fn nav_item(item: SidebarNavItem, theme: &Theme) -> impl IntoElement {
     let active = item.active;
-    let disabled = item.disabled;
 
     Button::new(item.id)
         .ghost()
         .selected(active)
-        .disabled(disabled)
         .w_full()
         .justify_start()
         .on_click(item.on_click)
@@ -227,6 +238,9 @@ fn nav_item(item: SidebarNavItem, theme: &Theme) -> impl IntoElement {
                 } else {
                     theme.sidebar
                 })
+                .when(!active, |el| {
+                    el.hover(|style| style.bg(theme.sidebar_accent.opacity(0.4)))
+                })
                 .border_l_2()
                 .border_color(if active {
                     theme.sidebar_primary
@@ -235,18 +249,15 @@ fn nav_item(item: SidebarNavItem, theme: &Theme) -> impl IntoElement {
                 })
                 .child(Icon::new(item.icon).text_color(if active {
                     theme.sidebar_primary
-                } else if disabled {
-                    theme.muted_foreground
                 } else {
                     theme.sidebar_foreground
                 }))
                 .child(
                     div()
                         .flex_1()
+                        .min_w(px(0.))
                         .text_color(if active {
                             theme.sidebar_accent_foreground
-                        } else if disabled {
-                            theme.muted_foreground
                         } else {
                             theme.sidebar_foreground
                         })
@@ -256,6 +267,7 @@ fn nav_item(item: SidebarNavItem, theme: &Theme) -> impl IntoElement {
                         } else {
                             gpui::FontWeight::NORMAL
                         })
+                        .truncate()
                         .child(item.label),
                 ),
         )
@@ -269,5 +281,11 @@ mod tests {
     fn api_key_visibility_icon_matches_current_visibility() {
         assert!(matches!(api_key_visibility_icon(true), IconName::Eye));
         assert!(matches!(api_key_visibility_icon(false), IconName::EyeOff));
+    }
+
+    #[test]
+    fn api_key_visibility_tooltip_matches_current_visibility() {
+        assert_eq!(api_key_visibility_tooltip(true), "Hide API key");
+        assert_eq!(api_key_visibility_tooltip(false), "Show API key");
     }
 }

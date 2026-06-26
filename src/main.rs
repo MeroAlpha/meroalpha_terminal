@@ -1,6 +1,9 @@
 mod app;
 
-use gpui::{Action, App, AppContext, Menu, MenuItem, SharedString, WindowOptions, actions};
+use gpui::{
+    Action, App, AppContext, Menu, MenuItem, SharedString, TitlebarOptions, WindowBounds,
+    WindowOptions, actions, px, size,
+};
 use gpui_component::{ActiveTheme as _, Root, Theme, ThemeMode, ThemeRegistry};
 use serde::Deserialize;
 
@@ -51,8 +54,9 @@ fn main() {
             set_app_menus(cx);
             cx.activate(true);
 
+            let window_options = terminal_window_options(cx);
             cx.spawn(async move |cx| {
-                cx.open_window(WindowOptions::default(), |window, cx| {
+                cx.open_window(window_options, |window, cx| {
                     let view = cx.new(|cx| MeroAlphaTerminal::new(window, cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 })
@@ -60,6 +64,18 @@ fn main() {
             })
             .detach();
         });
+}
+
+fn terminal_window_options(cx: &App) -> WindowOptions {
+    WindowOptions {
+        titlebar: Some(TitlebarOptions {
+            title: Some("MeroAlpha Terminal".into()),
+            ..Default::default()
+        }),
+        window_bounds: Some(WindowBounds::centered(size(px(1280.), px(820.)), cx)),
+        window_min_size: Some(size(px(800.), px(600.))),
+        ..WindowOptions::default()
+    }
 }
 
 fn load_bundled_themes(cx: &mut App) {

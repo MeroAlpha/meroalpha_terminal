@@ -146,16 +146,8 @@ impl MeroAlphaClient {
             .collect()
     }
 
-    pub fn overview_market_data(
-        &self,
-        preferred_symbols: &[String],
-    ) -> Result<OverviewMarketData, MeroAlphaApiError> {
-        eprintln!(
-            "[meroalpha-api] overview start base_url={} preferred_symbols={} symbols={:?}",
-            self.base_url,
-            preferred_symbols.len(),
-            preferred_symbols
-        );
+    pub fn overview_market_data(&self) -> Result<OverviewMarketData, MeroAlphaApiError> {
+        eprintln!("[meroalpha-api] overview start base_url={}", self.base_url);
         let market_status = self.market_status()?;
         eprintln!(
             "[meroalpha-api] overview market status last_traded_date={} status={} is_open={}",
@@ -398,20 +390,6 @@ pub fn market_indices_from_response(
         .collect())
 }
 
-pub fn market_mover_from_daily_response(
-    symbol: &str,
-    body: &str,
-) -> Result<MarketMoverUpdate, MeroAlphaApiError> {
-    let json: serde_json::Value = serde_json::from_str(body)
-        .map_err(|error| MeroAlphaApiError::InvalidJson(error.to_string()))?;
-    let row = response_rows(&json)?
-        .first()
-        .copied()
-        .ok_or(MeroAlphaApiError::MissingPrice)?;
-
-    market_mover_from_row(symbol, row)
-}
-
 pub fn market_movers_from_response(body: &str) -> Result<MarketMoverBuckets, MeroAlphaApiError> {
     let json: serde_json::Value = serde_json::from_str(body)
         .map_err(|error| MeroAlphaApiError::InvalidJson(error.to_string()))?;
@@ -569,6 +547,25 @@ fn first_string(row: &serde_json::Value, fields: &[&str]) -> Option<String> {
     })
 }
 
+fn daily_price_path(symbol: &str, date: &str) -> String {
+    format!(
+        "/v1/prices/daily?symbol={}&date={}&adjusted=false&limit=1",
+        symbol.trim().to_ascii_uppercase(),
+        date.trim()
+    )
+}
+
+fn market_movers_path(date: &str, limit: usize) -> String {
+    format!("/v1/market/movers?date={}&limit={}", date.trim(), limit)
+}
+
+fn mutual_fund_nav_path(symbol: &str) -> String {
+    format!(
+        "/v1/mutual-funds/nav?symbol={}&period=range&limit=1",
+        symbol.trim().to_ascii_uppercase()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -624,32 +621,6 @@ mod tests {
                     change_pct: -0.35,
                 },
             ])
-        );
-    }
-
-    #[test]
-    fn extracts_market_mover_from_daily_price_response() {
-        let body = r#"{
-            "data": [
-                {
-                    "symbol": "NICA",
-                    "close": "745.00",
-                    "previous_close": "700.00",
-                    "volume": "124500"
-                }
-            ]
-        }"#;
-
-        assert_eq!(
-            market_mover_from_daily_response("nica", body),
-            Ok(MarketMoverUpdate {
-                symbol: "NICA".to_string(),
-                ltp: 745.0,
-                change: 45.0,
-                change_pct: 6.428571428571428,
-                volume: 124500.0,
-                turnover: 0.0,
-            })
         );
     }
 
@@ -723,6 +694,23 @@ mod tests {
     }
 
     #[test]
+    fn rejects_blank_last_traded_date_from_market_status_response() {
+        let body = r#"{
+            "data": {
+                "status": "CLOSE",
+                "is_open": false,
+                "as_of": "2026-06-25T09:15:00Z",
+                "last_traded_date": "   "
+            }
+        }"#;
+
+        assert_eq!(
+            market_status_from_response(body),
+            Err(MeroAlphaApiError::MissingPrice)
+        );
+    }
+
+    #[test]
     fn builds_refresh_paths_for_equity_and_mutual_fund_routes() {
         assert_eq!(
             daily_price_path("NABIL", "2026-06-25"),
@@ -731,6 +719,14 @@ mod tests {
         assert_eq!(
             mutual_fund_nav_path("NICADF"),
             "/v1/mutual-funds/nav?symbol=NICADF&period=range&limit=1"
+        );
+    }
+
+    #[test]
+    fn builds_market_movers_path_from_trade_date() {
+        assert_eq!(
+            market_movers_path("2026-06-25", 10),
+            "/v1/market/movers?date=2026-06-25&limit=10"
         );
     }
 
@@ -764,23 +760,4 @@ mod tests {
             !MeroAlphaApiError::InvalidJson("expected value".to_string()).is_unavailable_price()
         );
     }
-}
-
-fn daily_price_path(symbol: &str, date: &str) -> String {
-    format!(
-        "/v1/prices/daily?symbol={}&date={}&adjusted=false&limit=1",
-        symbol.trim().to_ascii_uppercase(),
-        date.trim()
-    )
-}
-
-fn market_movers_path(date: &str, limit: usize) -> String {
-    format!("/v1/market/movers?date={}&limit={}", date.trim(), limit)
-}
-
-fn mutual_fund_nav_path(symbol: &str) -> String {
-    format!(
-        "/v1/mutual-funds/nav?symbol={}&period=range&limit=1",
-        symbol.trim().to_ascii_uppercase()
-    )
 }

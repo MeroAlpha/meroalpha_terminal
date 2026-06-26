@@ -11,15 +11,52 @@ use crate::components::theme::{
 ///
 /// Renders a real allocation breakdown derived from the live portfolio snapshot.
 pub fn render_right_rail(portfolio: &PortfolioSnapshot, theme: &Theme) -> impl IntoElement {
-    v_flex()
-        .w(px(340.))
-        .max_w(px(420.))
-        .h_full()
-        .flex_shrink_0()
-        .gap_5()
-        .overflow_y_scrollbar()
-        .child(allocation_panel(portfolio, theme))
-        .child(summary_panel(portfolio, theme))
+    render_right_rail_responsive(portfolio, theme, false, px(1200.))
+}
+
+pub fn render_right_rail_responsive(
+    portfolio: &PortfolioSnapshot,
+    theme: &Theme,
+    is_stacked: bool,
+    window_width: gpui::Pixels,
+) -> gpui::AnyElement {
+    if is_stacked {
+        // Stacked orientation: allocation and summary panels side-by-side if there's enough space, otherwise stacked.
+        // Sidebar is 280px + padding is 40px = 320px.
+        let horizontal_split = window_width - px(320.) >= px(700.);
+        
+        if horizontal_split {
+            h_flex()
+                .w_full()
+                .gap_4()
+                .items_stretch()
+                .child(
+                    div().flex_1().child(allocation_panel(portfolio, theme))
+                )
+                .child(
+                    div().flex_1().child(summary_panel(portfolio, theme))
+                )
+                .into_any_element()
+        } else {
+            v_flex()
+                .w_full()
+                .gap_4()
+                .child(allocation_panel(portfolio, theme))
+                .child(summary_panel(portfolio, theme))
+                .into_any_element()
+        }
+    } else {
+        v_flex()
+            .w(px(340.))
+            .max_w(px(420.))
+            .h_full()
+            .flex_shrink_0()
+            .gap_5()
+            .overflow_y_scrollbar()
+            .child(allocation_panel(portfolio, theme))
+            .child(summary_panel(portfolio, theme))
+            .into_any_element()
+    }
 }
 
 fn allocation_panel(portfolio: &PortfolioSnapshot, theme: &Theme) -> impl IntoElement {

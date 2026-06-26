@@ -100,17 +100,26 @@ pub fn section_heading(
     detail: impl Into<gpui::SharedString>,
 ) -> impl IntoElement {
     h_flex()
+        .flex_1()
+        .min_w(px(0.))
         .gap_3()
         .justify_between()
         .items_center()
         .child(
             div()
+                .flex_1()
+                .min_w(px(0.))
                 .text_color(theme.foreground)
                 .text_size(px(18.))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
+                .truncate()
                 .child(title.into()),
         )
-        .child(Badge::new().child(detail.into()).color(theme.muted))
+        .child(
+            div()
+                .flex_shrink_0()
+                .child(Badge::new().child(detail.into()).color(theme.muted)),
+        )
 }
 
 pub fn icon_badge(icon: IconName, tone: Tone) -> impl IntoElement {
@@ -151,9 +160,11 @@ pub fn table_cell(
     div()
         .flex_grow(grow)
         .flex_basis(px(100. * grow))
+        .min_w(px(0.))
         .text_color(color)
         .text_size(px(13.))
         .whitespace_nowrap()
+        .truncate()
         .when(align_right, |el| {
             el.text_align(gpui::TextAlign::Right).justify_end()
         })

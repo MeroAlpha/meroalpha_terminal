@@ -21,8 +21,50 @@ impl MoverTab {
 
     pub fn metric_label(self) -> &'static str {
         match self {
-            Self::Turnover => "TURNOVER",
+            Self::Turnover => "TURNOVER (NPR)",
             Self::Gainers | Self::Losers => "VOLUME",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Gainers => "Highest positive price moves",
+            Self::Losers => "Largest negative price moves",
+            Self::Turnover => "Highest traded value",
+        }
+    }
+
+    pub fn empty_message(self) -> &'static str {
+        match self {
+            Self::Gainers => "No gainers returned.",
+            Self::Losers => "No losers returned.",
+            Self::Turnover => "No turnover leaders returned.",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FinancialDirection {
+    Up,
+    Down,
+    Flat,
+}
+
+impl FinancialDirection {
+    fn from_signed(value: f64) -> Self {
+        if display_zero(value) {
+            Self::Flat
+        } else if value > 0.0 {
+            Self::Up
+        } else {
+            Self::Down
+        }
+    }
+
+    fn from_change(change: f64, change_pct: f64) -> Self {
+        match Self::from_signed(change) {
+            Self::Flat => Self::from_signed(change_pct),
+            direction => direction,
         }
     }
 }
@@ -41,7 +83,6 @@ pub struct OverviewSnapshot {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarketStatus {
     pub label: &'static str,
-    pub detail: String,
     pub live: bool,
 }
 
@@ -50,7 +91,7 @@ pub struct MarketPulseCard {
     pub label: String,
     pub value: String,
     pub change: String,
-    pub positive: bool,
+    pub direction: FinancialDirection,
     pub sparkline: Vec<f32>,
 }
 
@@ -61,7 +102,7 @@ pub struct PortfolioPerformance {
     pub change_pct_label: String,
     pub risk_label: &'static str,
     pub risk_score_label: &'static str,
-    pub positive: bool,
+    pub direction: FinancialDirection,
     pub is_empty: bool,
 }
 
@@ -71,7 +112,7 @@ pub struct MarketMover {
     pub ltp: String,
     pub change: String,
     pub volume: String,
-    pub positive: bool,
+    pub direction: FinancialDirection,
 }
 
 impl OverviewSnapshot {
@@ -113,18 +154,70 @@ impl OverviewSnapshot {
         self
     }
 
+    pub fn with_selected_mover_tab(mut self, selected_tab: MoverTab) -> Self {
+        self.selected_mover_tab = selected_tab;
+        self.mover_metric_label = selected_tab.metric_label();
+        self
+    }
+
     pub fn with_market_error(mut self) -> Self {
         self.market_status = MarketStatus::api_error();
         self.last_updated = "Request failed".to_string();
         self
     }
+
+    pub fn market_recency_label(&self) -> String {
+        if self.market_status.is_error() || self.last_updated == "Waiting for API" {
+            self.last_updated.clone()
+        } else {
+            format!("Last traded {}", self.last_updated)
+        }
+    }
+
+    pub fn top_movers_empty_message(&self) -> &'static str {
+        if self.market_status.is_error() {
+            "Market data unavailable."
+        } else if self.last_updated == "Waiting for API" {
+            "No market API data loaded."
+        } else {
+            self.selected_mover_tab.empty_message()
+        }
+    }
 }
 
 impl MarketStatus {
+    pub fn is_error(&self) -> bool {
+        self.label == "API Error"
+    }
+
+    pub fn badge_label(&self) -> &'static str {
+        match self.label {
+            "Open" => "Market Open",
+            "Closed" => "Market Closed",
+            "API Error" => "API Error",
+            _ => self.label,
+        }
+    }
+
+    pub fn empty_title(&self) -> &'static str {
+        if self.is_error() {
+            "Market data unavailable"
+        } else {
+            "No market API data loaded"
+        }
+    }
+
+    pub fn empty_detail(&self) -> &'static str {
+        if self.is_error() {
+            "Refresh again, or check your API key and connection."
+        } else {
+            "Set an API key in Profile & API, then refresh Overview."
+        }
+    }
+
     fn waiting() -> Self {
         Self {
             label: "Waiting",
-            detail: "Awaiting market data".to_string(),
             live: false,
         }
     }
@@ -132,7 +225,6 @@ impl MarketStatus {
     fn from_update(update: &MarketStatusUpdate) -> Self {
         Self {
             label: if update.is_open { "Open" } else { "Closed" },
-            detail: format!("Last traded {}", update.last_traded_date),
             live: update.is_open,
         }
     }
@@ -140,7 +232,6 @@ impl MarketStatus {
     fn api_error() -> Self {
         Self {
             label: "API Error",
-            detail: "See terminal logs".to_string(),
             live: false,
         }
     }
@@ -151,8 +242,8 @@ impl MarketPulseCard {
         Self {
             label: update.label.clone(),
             value: format_number(update.value),
-            change: format!("{:+.2} ({:+.2}%)", update.change, update.change_pct),
-            positive: update.change >= 0.0,
+            change: format_change(update.change, update.change_pct),
+            direction: FinancialDirection::from_change(update.change, update.change_pct),
             sparkline: sparkline_from_change(update.change_pct),
         }
     }
@@ -169,9 +260,9 @@ impl MarketMover {
         Self {
             symbol: update.symbol.clone(),
             ltp: format_number(update.ltp),
-            change: format!("{:+.2} ({:+.2}%)", update.change, update.change_pct),
+            change: format_change(update.change, update.change_pct),
             volume: format_whole_number(metric),
-            positive: update.change >= 0.0,
+            direction: FinancialDirection::from_change(update.change, update.change_pct),
         }
     }
 }
@@ -182,19 +273,19 @@ impl PortfolioPerformance {
             Some(portfolio) => Self {
                 total_value_label: format_npr(portfolio.total_value),
                 change_label: format_signed_npr(portfolio.unrealized_pl),
-                change_pct_label: format!("{:+.2}%", portfolio.unrealized_pl_pct),
+                change_pct_label: format_signed_percent(portfolio.unrealized_pl_pct),
                 risk_label: "Local Portfolio",
                 risk_score_label: allocation_risk_label(portfolio.positions.len()),
-                positive: portfolio.unrealized_pl >= 0.0,
+                direction: FinancialDirection::from_signed(portfolio.unrealized_pl),
                 is_empty: false,
             },
             None => Self {
-                total_value_label: "Import CSV".to_string(),
-                change_label: "Local portfolio inactive".to_string(),
-                change_pct_label: "0.00%".to_string(),
+                total_value_label: "No holdings".to_string(),
+                change_label: "Portfolio inactive".to_string(),
+                change_pct_label: String::new(),
                 risk_label: "Awaiting holdings",
                 risk_score_label: "0 positions",
-                positive: true,
+                direction: FinancialDirection::Flat,
                 is_empty: true,
             },
         }
@@ -216,11 +307,35 @@ fn format_npr(value: f64) -> String {
 }
 
 fn format_signed_npr(value: f64) -> String {
-    if value >= 0.0 {
+    if display_zero(value) {
+        format_npr(0.0)
+    } else if value > 0.0 {
         format!("+{}", format_npr(value))
     } else {
         format!("-{}", format_npr(value.abs()))
     }
+}
+
+fn format_signed_percent(value: f64) -> String {
+    if display_zero(value) {
+        "0.00%".to_string()
+    } else {
+        format!("{value:+.2}%")
+    }
+}
+
+fn format_change(change: f64, change_pct: f64) -> String {
+    let change = if display_zero(change) {
+        "0.00".to_string()
+    } else {
+        format!("{change:+.2}")
+    };
+    let change_pct = format_signed_percent(change_pct);
+    format!("{change} ({change_pct})")
+}
+
+fn display_zero(value: f64) -> bool {
+    (value * 100.0).round() == 0.0
 }
 
 fn format_number(value: f64) -> String {
@@ -303,12 +418,30 @@ mod tests {
     }
 
     #[test]
+    fn zero_portfolio_move_is_neutral() {
+        let portfolio = portfolio_snapshot(&[HoldingImport {
+            symbol: "NABIL".to_string(),
+            quantity: 10.0,
+            avg_cost: 500.0,
+            ltp: 500.0,
+        }]);
+
+        let overview = OverviewSnapshot::from_portfolio(Some(&portfolio));
+
+        assert_eq!(overview.portfolio.change_label, "NPR 0.00");
+        assert_eq!(overview.portfolio.change_pct_label, "0.00%");
+        assert_eq!(overview.portfolio.direction, FinancialDirection::Flat);
+    }
+
+    #[test]
     fn overview_snapshot_is_stable_without_imported_holdings() {
         let overview = OverviewSnapshot::from_portfolio(None);
 
         assert_eq!(overview.market_pulse.len(), 0);
         assert_eq!(overview.top_movers.len(), 0);
-        assert_eq!(overview.portfolio.total_value_label, "Import CSV");
+        assert_eq!(overview.portfolio.total_value_label, "No holdings");
+        assert_eq!(overview.portfolio.change_label, "Portfolio inactive");
+        assert_eq!(overview.portfolio.change_pct_label, "");
         assert_eq!(overview.market_status.label, "Waiting");
         assert!(!overview.market_status.live);
         assert!(overview.portfolio.is_empty);
@@ -345,7 +478,6 @@ mod tests {
         );
 
         assert_eq!(overview.market_status.label, "Closed");
-        assert_eq!(overview.market_status.detail, "Last traded 2026-06-25");
         assert!(!overview.market_status.live);
         assert_eq!(overview.last_updated, "2026-06-25");
     }
@@ -390,8 +522,250 @@ mod tests {
             .with_market_data(market_data, MoverTab::Turnover);
 
         assert_eq!(overview.selected_mover_tab, MoverTab::Turnover);
-        assert_eq!(overview.mover_metric_label, "TURNOVER");
+        assert_eq!(overview.mover_metric_label, "TURNOVER (NPR)");
         assert_eq!(overview.top_movers[0].symbol, "TURN");
         assert_eq!(overview.top_movers[0].volume, "900,000");
+    }
+
+    #[test]
+    fn market_error_status_is_distinct_from_closed_market() {
+        let overview = OverviewSnapshot::from_portfolio(None).with_market_error();
+
+        assert!(overview.market_status.is_error());
+        assert!(!MarketStatus::waiting().is_error());
+    }
+
+    #[test]
+    fn market_recency_label_describes_data_state() {
+        let waiting = OverviewSnapshot::from_portfolio(None);
+        assert_eq!(waiting.market_recency_label(), "Waiting for API");
+
+        let failed = OverviewSnapshot::from_portfolio(None).with_market_error();
+        assert_eq!(failed.market_recency_label(), "Request failed");
+
+        let loaded = OverviewSnapshot::from_portfolio(None).with_market_data(
+            OverviewMarketData {
+                market_status: MarketStatusUpdate {
+                    status: "CLOSE".to_string(),
+                    is_open: false,
+                    as_of: None,
+                    last_traded_date: "2026-06-25".to_string(),
+                },
+                indices: Vec::new(),
+                gainers: Vec::new(),
+                losers: Vec::new(),
+                turnover: Vec::new(),
+            },
+            MoverTab::Gainers,
+        );
+        assert_eq!(loaded.market_recency_label(), "Last traded 2026-06-25");
+    }
+
+    #[test]
+    fn mover_tabs_explain_their_sort_order() {
+        assert_eq!(
+            MoverTab::Gainers.description(),
+            "Highest positive price moves"
+        );
+        assert_eq!(
+            MoverTab::Losers.description(),
+            "Largest negative price moves"
+        );
+        assert_eq!(MoverTab::Turnover.description(), "Highest traded value");
+    }
+
+    #[test]
+    fn mover_tabs_have_specific_empty_messages() {
+        assert_eq!(MoverTab::Gainers.empty_message(), "No gainers returned.");
+        assert_eq!(MoverTab::Losers.empty_message(), "No losers returned.");
+        assert_eq!(
+            MoverTab::Turnover.empty_message(),
+            "No turnover leaders returned."
+        );
+    }
+
+    #[test]
+    fn top_movers_empty_message_reflects_market_state() {
+        let waiting = OverviewSnapshot::from_portfolio(None);
+        assert_eq!(
+            waiting.top_movers_empty_message(),
+            "No market API data loaded."
+        );
+
+        let failed = OverviewSnapshot::from_portfolio(None).with_market_error();
+        assert_eq!(
+            failed.top_movers_empty_message(),
+            "Market data unavailable."
+        );
+
+        let loaded = OverviewSnapshot::from_portfolio(None).with_market_data(
+            OverviewMarketData {
+                market_status: MarketStatusUpdate {
+                    status: "CLOSE".to_string(),
+                    is_open: false,
+                    as_of: None,
+                    last_traded_date: "2026-06-25".to_string(),
+                },
+                indices: Vec::new(),
+                gainers: Vec::new(),
+                losers: Vec::new(),
+                turnover: Vec::new(),
+            },
+            MoverTab::Turnover,
+        );
+        assert_eq!(
+            loaded.top_movers_empty_message(),
+            "No turnover leaders returned."
+        );
+    }
+
+    #[test]
+    fn market_status_badge_label_is_human_readable() {
+        assert_eq!(MarketStatus::waiting().badge_label(), "Waiting");
+        assert_eq!(MarketStatus::api_error().badge_label(), "API Error");
+        assert_eq!(
+            MarketStatus {
+                label: "Open",
+                live: true,
+            }
+            .badge_label(),
+            "Market Open"
+        );
+        assert_eq!(
+            MarketStatus {
+                label: "Closed",
+                live: false,
+            }
+            .badge_label(),
+            "Market Closed"
+        );
+    }
+
+    #[test]
+    fn market_empty_copy_is_actionable() {
+        assert_eq!(
+            MarketStatus::api_error().empty_title(),
+            "Market data unavailable"
+        );
+        assert_eq!(
+            MarketStatus::api_error().empty_detail(),
+            "Refresh again, or check your API key and connection."
+        );
+        assert_eq!(
+            MarketStatus::waiting().empty_title(),
+            "No market API data loaded"
+        );
+        assert_eq!(
+            MarketStatus::waiting().empty_detail(),
+            "Set an API key in Profile & API, then refresh Overview."
+        );
+    }
+
+    #[test]
+    fn zero_market_moves_are_neutral() {
+        let overview = OverviewSnapshot::from_portfolio(None).with_market_data(
+            OverviewMarketData {
+                market_status: MarketStatusUpdate {
+                    status: "CLOSE".to_string(),
+                    is_open: false,
+                    as_of: None,
+                    last_traded_date: "2026-06-25".to_string(),
+                },
+                indices: vec![MarketIndexUpdate {
+                    label: "NEPSE".to_string(),
+                    value: 2651.52,
+                    change: 0.0,
+                    change_pct: 0.0,
+                }],
+                gainers: vec![MarketMoverUpdate {
+                    symbol: "FLAT".to_string(),
+                    ltp: 100.0,
+                    change: 0.0,
+                    change_pct: 0.0,
+                    volume: 1_000.0,
+                    turnover: 100_000.0,
+                }],
+                losers: Vec::new(),
+                turnover: Vec::new(),
+            },
+            MoverTab::Gainers,
+        );
+
+        assert_eq!(overview.market_pulse[0].direction, FinancialDirection::Flat);
+        assert_eq!(overview.market_pulse[0].change, "0.00 (0.00%)");
+        assert_eq!(overview.top_movers[0].direction, FinancialDirection::Flat);
+        assert_eq!(overview.top_movers[0].change, "0.00 (0.00%)");
+    }
+
+    #[test]
+    fn tiny_market_moves_that_display_as_zero_are_neutral() {
+        let overview = OverviewSnapshot::from_portfolio(None).with_market_data(
+            OverviewMarketData {
+                market_status: MarketStatusUpdate {
+                    status: "CLOSE".to_string(),
+                    is_open: false,
+                    as_of: None,
+                    last_traded_date: "2026-06-25".to_string(),
+                },
+                indices: vec![MarketIndexUpdate {
+                    label: "NEPSE".to_string(),
+                    value: 2651.52,
+                    change: 0.004,
+                    change_pct: -0.004,
+                }],
+                gainers: vec![MarketMoverUpdate {
+                    symbol: "FLAT".to_string(),
+                    ltp: 100.0,
+                    change: -0.004,
+                    change_pct: 0.004,
+                    volume: 1_000.0,
+                    turnover: 100_000.0,
+                }],
+                losers: Vec::new(),
+                turnover: Vec::new(),
+            },
+            MoverTab::Gainers,
+        );
+
+        assert_eq!(overview.market_pulse[0].direction, FinancialDirection::Flat);
+        assert_eq!(overview.market_pulse[0].change, "0.00 (0.00%)");
+        assert_eq!(overview.top_movers[0].direction, FinancialDirection::Flat);
+        assert_eq!(overview.top_movers[0].change, "0.00 (0.00%)");
+    }
+
+    #[test]
+    fn market_direction_uses_percent_when_change_displays_flat() {
+        let overview = OverviewSnapshot::from_portfolio(None).with_market_data(
+            OverviewMarketData {
+                market_status: MarketStatusUpdate {
+                    status: "CLOSE".to_string(),
+                    is_open: false,
+                    as_of: None,
+                    last_traded_date: "2026-06-25".to_string(),
+                },
+                indices: vec![MarketIndexUpdate {
+                    label: "NEPSE".to_string(),
+                    value: 2651.52,
+                    change: 0.004,
+                    change_pct: 0.25,
+                }],
+                gainers: vec![MarketMoverUpdate {
+                    symbol: "MOVE".to_string(),
+                    ltp: 100.0,
+                    change: -0.004,
+                    change_pct: -0.25,
+                    volume: 1_000.0,
+                    turnover: 100_000.0,
+                }],
+                losers: Vec::new(),
+                turnover: Vec::new(),
+            },
+            MoverTab::Gainers,
+        );
+
+        assert_eq!(overview.market_pulse[0].direction, FinancialDirection::Up);
+        assert_eq!(overview.market_pulse[0].change, "0.00 (+0.25%)");
+        assert_eq!(overview.top_movers[0].direction, FinancialDirection::Down);
+        assert_eq!(overview.top_movers[0].change, "0.00 (-0.25%)");
     }
 }
